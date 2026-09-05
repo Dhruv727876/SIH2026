@@ -15,9 +15,8 @@
 
 | Service | Target Environment | Live Link |
 | :--- | :--- | :--- |
-| **Frontend Web App** | Vercel (Next.js 14 App Router) | [🔗 Launch Command Center](https://your-frontend-app.vercel.app) |
-| **Backend REST API** | Render (FastAPI + Uvicorn) | [🔗 Explore OpenAPI / Swagger Docs](https://your-backend-app.onrender.com/docs) |
-| **Pitch & Demo Video** | YouTube (3-Minute Walkthrough) | [📺 Watch System Demo](https://youtu.be/your-demo-video-id) |
+| **Frontend Web App** | Vercel (Next.js 14 App Router) | [🔗 Launch Command Center](https://sih-2026-puce.vercel.app/) |
+| **Backend REST API** | Render (FastAPI + Uvicorn) | [🔗 Explore OpenAPI / Swagger Docs](https://sih2026-backend-yt00.onrender.com) |
 
 ---
 
