@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Environment Variables
+.env
+.env*.local
+!.env.example
+
+# Local SQLite & Databases
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.playwright-mcp/
+
+# Celery & Logs
+celerybeat-schedule
+*.log
+
+# ML Artifacts
+models/checkpoints/
+mlruns/
+wandb/
