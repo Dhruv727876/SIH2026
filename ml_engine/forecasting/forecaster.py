@@ -20,7 +20,9 @@ from data_pipeline.fetch_disruptions import get_disruption_shock_multiplier
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("freight-forecaster")
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+# Render uses the PORT env var (usually 10000). Fallback to 8000 for local dev.
+PORT = os.getenv("PORT", "8000")
+API_BASE_URL = os.getenv("API_BASE_URL", f"http://127.0.0.1:{PORT}").rstrip("/")
 
 
 class FreightForecaster:

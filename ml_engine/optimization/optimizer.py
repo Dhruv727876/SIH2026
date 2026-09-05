@@ -89,7 +89,9 @@ def get_route_info(origin_port: Optional[str]) -> Dict[str, Any]:
         return ROUTE_DISTANCE_MULTIPLIERS["Australia"]
 
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+# Render uses the PORT env var (usually 10000). Fallback to 8000 for local dev.
+PORT = os.getenv("PORT", "8000")
+API_BASE_URL = os.getenv("API_BASE_URL", f"http://127.0.0.1:{PORT}").rstrip("/")
 
 
 class VesselCharterOptimizer:
