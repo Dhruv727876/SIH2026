@@ -89,14 +89,17 @@ def get_route_info(origin_port: Optional[str]) -> Dict[str, Any]:
         return ROUTE_DISTANCE_MULTIPLIERS["Australia"]
 
 
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+
+
 class VesselCharterOptimizer:
     """
-    Mixed-Integer Linear Programming (MILP) Optimizer for Vessel Chartering.
+    Mixed-Integer Linear Programming (MILP) and Heuristic Optimization Engine.
     Minimizes total landed logistics cost (Freight + Demurrage) under draft, route distance, and berth constraints.
     """
 
-    def __init__(self, backend_api_url: str = "http://localhost:8000"):
-        self.backend_api_url = backend_api_url.rstrip("/")
+    def __init__(self, backend_api_url: Optional[str] = None):
+        self.backend_api_url = (backend_api_url or API_BASE_URL).rstrip("/")
         self.forecaster = FreightForecaster(backend_api_url=self.backend_api_url)
 
     def fetch_port_constraints(self, target_port: str) -> Dict[str, Any]:

@@ -20,6 +20,8 @@ from data_pipeline.fetch_disruptions import get_disruption_shock_multiplier
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("freight-forecaster")
 
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+
 
 class FreightForecaster:
     """
@@ -28,8 +30,8 @@ class FreightForecaster:
     incorporating real 25-year historical Kaggle BDI data when available.
     """
 
-    def __init__(self, backend_api_url: str = "http://localhost:8000"):
-        self.backend_api_url = backend_api_url.rstrip("/")
+    def __init__(self, backend_api_url: Optional[str] = None):
+        self.backend_api_url = (backend_api_url or API_BASE_URL).rstrip("/")
 
     def fetch_historical_data(self, index_name: str, limit: int = 180) -> pd.DataFrame:
         """
@@ -67,6 +69,8 @@ class FreightForecaster:
             raise ValueError(f"Invalid market data format for index {index_name}")
 
         df["timestamp"] = pd.to_datetime(df["timestamp"])
+        if df["timestamp"].dt.tz is not None:
+            df["timestamp"] = df["timestamp"].dt.tz_localize(None)
         df["value"] = pd.to_numeric(df["value"], errors="coerce")
         df = df.dropna(subset=["value"]).sort_values("timestamp").reset_index(drop=True)
 
@@ -250,11 +254,9 @@ class FreightForecaster:
         try:
             from prophet import Prophet
             prophet_df = training_df[["timestamp", "value"]].rename(columns={"timestamp": "ds", "value": "y"})
-            prophet_df["ds"] = (
-                prophet_df["ds"].dt.tz_localize(None)
-                if prophet_df["ds"].dt.tz is not None
-                else prophet_df["ds"]
-            )
+            prophet_df["ds"] = pd.to_datetime(prophet_df["ds"])
+            if prophet_df["ds"].dt.tz is not None:
+                prophet_df["ds"] = prophet_df["ds"].dt.tz_localize(None)
 
             m = Prophet(
                 daily_seasonality=False,
@@ -267,10 +269,15 @@ class FreightForecaster:
             # Generate future horizon (daily frequency starting from recent date)
             future_days = []
             start_date = df["timestamp"].max() if not df.empty else datetime.now()
+            if hasattr(start_date, "tzinfo") and start_date.tzinfo is not None:
+                start_date = start_date.replace(tzinfo=None)
             for i in range(1, horizon + 1):
                 future_days.append(start_date + timedelta(days=i))
 
             future = pd.DataFrame({"ds": future_days})
+            future["ds"] = pd.to_datetime(future["ds"])
+            if future["ds"].dt.tz is not None:
+                future["ds"] = future["ds"].dt.tz_localize(None)
             forecast = m.predict(future)
 
             predictions = []

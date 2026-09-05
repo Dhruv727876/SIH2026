@@ -42,11 +42,13 @@ app = FastAPI(
 )
 
 # Dynamic CORS setup for frontend communication
-raw_allowed_origins = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000"
-)
-allowed_origins = [origin.strip() for origin in raw_allowed_origins.split(",") if origin.strip()]
+origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+if not origins_env or origins_env.strip() == "*":
+    allowed_origins = ["*"]
+else:
+    allowed_origins = [o.strip() for o in origins_env.split(",") if o.strip()]
+    if not allowed_origins:
+        allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
