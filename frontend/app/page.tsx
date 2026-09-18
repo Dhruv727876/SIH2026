@@ -441,31 +441,32 @@ export default function DashboardPage() {
             handleRunOptimization(undefined, undefined, true);
           }}
         >
-          {/* Row 1: Cargo Volume & Origin Port */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-[#001f3f] flex items-center justify-between">
-                <span>Required Cargo Volume</span>
-                <span className="text-[10px] text-[#64748b]">±5% Operational Tol.</span>
-              </label>
-              <div className="flex items-center rounded border border-[#cbd5e1] bg-white focus-within:border-[#12355b] focus-within:ring-1 focus-within:ring-[#12355b]">
-                <input
-                  className="w-full h-[38px] px-3 text-sm font-mono text-[#0d1c2e] bg-transparent focus:outline-none"
-                  type="number"
-                  min="50000"
-                  max="2000000"
-                  step="10000"
-                  value={request.required_cargo_mt}
-                  onChange={(e) =>
-                    setRequest((prev) => ({ ...prev, required_cargo_mt: parseFloat(e.target.value) || 300000 }))
-                  }
-                />
-                <span className="h-[38px] px-3 bg-[#f1f5f9] text-[#475569] text-xs font-bold flex items-center justify-center border-l border-[#cbd5e1]">
-                  MT
-                </span>
-              </div>
+          {/* Row 1: Cargo Volume */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-bold text-[#001f3f] flex items-center justify-between">
+              <span>Required Cargo Volume</span>
+              <span className="text-[10px] text-[#64748b]">±5% Operational Tol.</span>
+            </label>
+            <div className="flex items-center rounded border border-[#cbd5e1] bg-white focus-within:border-[#12355b] focus-within:ring-1 focus-within:ring-[#12355b]">
+              <input
+                className="w-full h-[38px] px-3 text-sm font-mono text-[#0d1c2e] bg-transparent focus:outline-none"
+                type="number"
+                min="50000"
+                max="2000000"
+                step="10000"
+                value={request.required_cargo_mt}
+                onChange={(e) =>
+                  setRequest((prev) => ({ ...prev, required_cargo_mt: parseFloat(e.target.value) || 300000 }))
+                }
+              />
+              <span className="h-[38px] px-3 bg-[#f1f5f9] text-[#475569] text-xs font-bold flex items-center justify-center border-l border-[#cbd5e1]">
+                MT
+              </span>
             </div>
+          </div>
 
+          {/* Row 2: Origin & Destination Ports */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-[#001f3f]">Origin Port / Loading Region</label>
               <select
@@ -482,10 +483,7 @@ export default function DashboardPage() {
                 <option value="Brazil (Tubarao)">Brazil (Tubarao) — Deepwater Bulk Hub</option>
               </select>
             </div>
-          </div>
 
-          {/* Row 2: Destination Port & Material */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-[#001f3f] flex items-center justify-between">
                 <span>Destination Port (India)</span>
@@ -504,22 +502,6 @@ export default function DashboardPage() {
                 <option value="Dhamra">Dhamra (DPCL - Capesize Ready, 17.5m Draft)</option>
                 <option value="Mormugao">Mormugao (MPT - Mooring Berth, 14.1m Draft)</option>
                 <option value="Jaigad">Jaigad (JSP - Deepwater Berth, 18.5m Draft)</option>
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-[#001f3f]">Primary Bulk Material</label>
-              <select
-                className="w-full h-[38px] px-3 text-xs text-[#0d1c2e] bg-white rounded border border-[#cbd5e1] focus:outline-none focus:border-[#12355b] cursor-pointer"
-                value={request.cargo_type}
-                onChange={(e) => setRequest((prev) => ({ ...prev, cargo_type: e.target.value }))}
-              >
-                <option>Hard Coking Coal (HCC Prime - SAIL/RINL spec)</option>
-                <option>Pulverized Coal Injection (PCI Low Volatile)</option>
-                <option>Thermal Coal (GAR 4200-5000 kcal/kg)</option>
-                <option>Iron Ore Pellets (65% Fe Basis)</option>
-                <option>Limestone &amp; Dolomite (Flux Material)</option>
-                <option>Manganese Ore (Bulk Lumps)</option>
               </select>
             </div>
           </div>
