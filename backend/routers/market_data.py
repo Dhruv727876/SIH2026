@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.market_data import MarketData
 from schemas.market_data import MarketDataCreate, MarketDataResponse
+from routers.forecasts import clear_forecast_cache
+from routers.optimization import clear_optimization_cache
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["Market Data"])
 
@@ -32,6 +34,9 @@ def create_market_data(
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
+    # Invalidate ML and MILP caches so subsequent requests compute fresh results
+    clear_forecast_cache()
+    clear_optimization_cache()
     return db_item
 
 
@@ -58,6 +63,9 @@ def create_market_data_bulk(
     ]
     db.bulk_save_objects(items)
     db.commit()
+    # Invalidate ML and MILP caches on bulk ingestion
+    clear_forecast_cache()
+    clear_optimization_cache()
     return {"status": "success", "inserted": len(items)}
 
 

@@ -1,7 +1,9 @@
+import time
 from datetime import date, datetime, timezone
 import logging
 import os
 import sys
+from typing import Any, Dict, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,46 @@ from models.optimization_log import OptimizationLog
 logger = logging.getLogger("optimization-router")
 router = APIRouter(prefix="/api/v1/optimize", tags=["Optimization"])
 
+# In-memory optimization cache with 15-minute TTL
+OPTIMIZATION_CACHE: Dict[Tuple, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 900  # 15 minutes
+
+
+def get_cached_optimization(cache_key: Tuple) -> Optional[OptimizationResponse]:
+    """Retrieves cached optimization plan if within 15-minute TTL."""
+    if cache_key in OPTIMIZATION_CACHE:
+        entry = OPTIMIZATION_CACHE[cache_key]
+        if time.time() - entry["timestamp"] < CACHE_TTL_SECONDS:
+            return entry["response"]
+        else:
+            del OPTIMIZATION_CACHE[cache_key]
+    return None
+
+
+def set_cached_optimization(cache_key: Tuple, response: OptimizationResponse):
+    """Stores optimization response in cache with current timestamp."""
+    OPTIMIZATION_CACHE[cache_key] = {
+        "timestamp": time.time(),
+        "response": response,
+    }
+
+
+def clear_optimization_cache():
+    """Invalidates the entire optimization cache on data updates."""
+    OPTIMIZATION_CACHE.clear()
+
+
+@router.post(
+    "/clear-cache",
+    status_code=status.HTTP_200_OK,
+    summary="Clear the in-memory optimization response cache",
+)
+def clear_cache_endpoint():
+    """Manually flushes the optimization cache dict."""
+    clear_optimization_cache()
+    logger.info("Optimization cache manually cleared.")
+    return {"status": "success", "message": "Optimization cache cleared successfully"}
+
 
 @router.post(
     "",
@@ -33,7 +75,22 @@ def run_vessel_charter_optimization(
     """
     Computes an optimal vessel chartering plan that minimizes total freight and demurrage costs
     while satisfying physical draft, route distance multiplier, and berth constraints.
+    Returns cached solution if invoked with identical parameters within 15 minutes.
     """
+    cache_key = (
+        round(float(payload.required_cargo_mt), 2),
+        str(payload.target_port).strip().lower(),
+        str(payload.origin_port or "Australia").strip().lower(),
+        int(payload.planning_horizon_days),
+        round(float(payload.disruption_multiplier or 1.0), 4),
+        str(payload.disruption_name or "").strip(),
+    )
+
+    cached_res = get_cached_optimization(cache_key)
+    if cached_res is not None:
+        logger.info(f"Returning cached MILP optimization response for key: {cache_key}")
+        return cached_res
+
     try:
         optimizer = VesselCharterOptimizer()
         result = optimizer.optimize_charter_plan(
@@ -94,6 +151,8 @@ def run_vessel_charter_optimization(
         except Exception as log_err:
             logger.warning(f"Could not persist optimization log to database ({log_err}).")
 
+        # Cache response under key for 15 minutes
+        set_cached_optimization(cache_key, response)
         return response
 
     except Exception as e:

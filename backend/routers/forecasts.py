@@ -1,7 +1,8 @@
+import time
 from datetime import datetime, timezone
 import os
 import sys
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, status
 
 # Ensure ml_engine is accessible in path
@@ -15,8 +16,33 @@ from schemas.forecast import ForecastRequest, ForecastResponse, ForecastItem
 
 router = APIRouter(prefix="/api/v1/forecasts", tags=["Forecasting"])
 
-# In-memory forecast cache to prevent redundant ML re-training: {index_name: ForecastResponse}
-FORECAST_CACHE: Dict[str, Dict] = {}
+# In-memory forecast cache with 15-minute TTL: {cache_key: {"timestamp": float, "response": ForecastResponse}}
+FORECAST_CACHE: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 900  # 15 minutes
+
+
+def get_cached_forecast(key: str) -> Optional[ForecastResponse]:
+    """Retrieves cached forecast if present and under 15-minute TTL."""
+    if key in FORECAST_CACHE:
+        entry = FORECAST_CACHE[key]
+        if time.time() - entry["timestamp"] < CACHE_TTL_SECONDS:
+            return entry["response"]
+        else:
+            del FORECAST_CACHE[key]
+    return None
+
+
+def set_cached_forecast(key: str, response: ForecastResponse):
+    """Stores forecast response with current epoch timestamp."""
+    FORECAST_CACHE[key] = {
+        "timestamp": time.time(),
+        "response": response,
+    }
+
+
+def clear_forecast_cache():
+    """Invalidates the entire forecast cache on new market data ingestion."""
+    FORECAST_CACHE.clear()
 
 
 @router.post(
@@ -29,8 +55,15 @@ def generate_forecast(payload: ForecastRequest):
     """
     Triggers the hybrid ML forecasting engine (LightGBM + Prophet/Statsmodels)
     for the specified index and returns the 60-day predictive trajectory.
+    Returns cached response if requested with identical parameters within 15 minutes.
     """
     index_name = payload.index_name.upper().strip()
+    cache_key = f"FORECAST_{index_name}"
+
+    cached = get_cached_forecast(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         forecaster = FreightForecaster()
         forecast_data = forecaster.get_full_forecast(index_name)
@@ -52,8 +85,7 @@ def generate_forecast(payload: ForecastRequest):
             forecast=forecast_items,
         )
 
-        # Store in cache
-        FORECAST_CACHE[index_name] = response.model_dump()
+        set_cached_forecast(cache_key, response)
         return response
 
     except Exception as e:
@@ -71,12 +103,14 @@ def generate_forecast(payload: ForecastRequest):
 def get_forecast(index_name: str):
     """
     Retrieves the 60-day forecast for the given index (e.g. BCI, BPI, BSI, BRENT_CRUDE, BUNKER_SIN).
-    Returns cached prediction if available, otherwise triggers fresh model generation.
+    Returns cached prediction if available within 15 minutes, otherwise triggers fresh model generation.
     """
     idx = index_name.upper().strip()
+    cache_key = f"FORECAST_{idx}"
 
-    if idx in FORECAST_CACHE:
-        return FORECAST_CACHE[idx]
+    cached = get_cached_forecast(cache_key)
+    if cached is not None:
+        return cached
 
     # Generate on-demand if cache miss
     try:
@@ -100,7 +134,7 @@ def get_forecast(index_name: str):
             forecast=forecast_items,
         )
 
-        FORECAST_CACHE[idx] = response.model_dump()
+        set_cached_forecast(cache_key, response)
         return response
 
     except Exception as e:

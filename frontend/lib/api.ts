@@ -31,6 +31,7 @@ export interface OptimizationRequest {
   required_cargo_mt: number;
   target_port: string;
   origin_port?: string;
+  cargo_type?: string;
   planning_horizon_days: number;
   disruption_multiplier?: number;
   disruption_name?: string;

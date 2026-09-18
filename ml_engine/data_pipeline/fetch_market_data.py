@@ -3,7 +3,12 @@ import os
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+import numpy as np
 import pandas as pd
+
+# Enforce global determinism for data pipelines
+np.random.seed(42)
+random.seed(42)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("market-data-fetcher")
@@ -95,9 +100,13 @@ def generate_synthetic_series(
 ) -> List[Dict[str, Any]]:
     """
     Generates a realistic mean-reverting random walk time-series for shipping & macro indices.
+    Uses local deterministic RandomState for strict reproducibility.
     """
     if end_date is None:
-        end_date = datetime.now(timezone.utc)
+        end_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Deterministic local RandomState: np.random.RandomState(42) as mandated
+    rng = np.random.RandomState(42)
 
     spec = INDEX_SPECS.get(index_name, {"base": 100.0, "volatility": 0.02, "currency": "USD"})
     current_val = spec["base"]
@@ -111,7 +120,7 @@ def generate_synthetic_series(
             continue
 
         mean_reversion_pull = 0.05 * (spec["base"] - current_val) / spec["base"]
-        shock = random.gauss(0, volatility)
+        shock = float(rng.normal(0, volatility))
         current_val = max(1.0, current_val * (1.0 + mean_reversion_pull + shock))
 
         records.append({

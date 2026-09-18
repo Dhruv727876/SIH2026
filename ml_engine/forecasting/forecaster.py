@@ -4,9 +4,14 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+import random
 import numpy as np
 import pandas as pd
 import requests
+
+# Enforce global determinism
+np.random.seed(42)
+random.seed(42)
 
 # Add parent directory to path so we can import from data_pipeline
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -49,7 +54,7 @@ class FreightForecaster:
         try:
             url = f"{self.backend_api_url}/api/v1/market-data"
             params = {"index_name": index_name, "limit": limit}
-            resp = requests.get(url, params=params, timeout=4)
+            resp = requests.get(url, params=params, timeout=10)
             if resp.status_code == 200:
                 records = resp.json()
                 logger.info(f"Retrieved {len(records)} records for {index_name} from backend API.")
@@ -130,6 +135,9 @@ class FreightForecaster:
                 max_depth=4,
                 num_leaves=15,
                 random_state=42,
+                deterministic=True,
+                force_row_wise=True,
+                n_jobs=1,
                 verbosity=-1,
             )
             model.fit(X_train, y_train)
@@ -260,12 +268,20 @@ class FreightForecaster:
             if prophet_df["ds"].dt.tz is not None:
                 prophet_df["ds"] = prophet_df["ds"].dt.tz_localize(None)
 
-            m = Prophet(
-                daily_seasonality=False,
-                weekly_seasonality=not is_monthly_data,
-                yearly_seasonality=True,
-                interval_width=0.80,
-            )
+            np.random.seed(42)
+            random.seed(42)
+            prophet_kwargs = {
+                "daily_seasonality": False,
+                "weekly_seasonality": not is_monthly_data,
+                "yearly_seasonality": True,
+                "interval_width": 0.80,
+                "mcmc_samples": 0,
+            }
+            try:
+                # Explicitly pass fixed seed for L-BFGS optimizer determinism if version supports it
+                m = Prophet(seed=42, **prophet_kwargs)
+            except (TypeError, ValueError):
+                m = Prophet(**prophet_kwargs)
             m.fit(prophet_df)
 
             # Generate future horizon (daily frequency starting from recent date)
@@ -362,6 +378,8 @@ class FreightForecaster:
         Optionally applies a historical disruption shock multiplier.
         """
         logger.info(f"Initiating hybrid freight forecast for index: {index_name} (Disruption: {disruption_event})...")
+        np.random.seed(42)
+        random.seed(42)
         df = self.fetch_historical_data(index_name)
 
         # 1. Generate 15-day short-term forecast
