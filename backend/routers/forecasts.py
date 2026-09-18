@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 import os
 import sys
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 # Ensure ml_engine is accessible in path
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,6 +14,7 @@ if ml_engine_dir not in sys.path:
 
 from forecasting.forecaster import FreightForecaster
 from schemas.forecast import ForecastRequest, ForecastResponse, ForecastItem
+from database import get_db
 
 router = APIRouter(prefix="/api/v1/forecasts", tags=["Forecasting"])
 
@@ -51,7 +53,10 @@ def clear_forecast_cache():
     status_code=status.HTTP_200_OK,
     summary="Trigger and generate a 60-day hybrid freight/fuel rate forecast",
 )
-def generate_forecast(payload: ForecastRequest):
+def generate_forecast(
+    payload: ForecastRequest,
+    db: Session = Depends(get_db),
+):
     """
     Triggers the hybrid ML forecasting engine (LightGBM + Prophet/Statsmodels)
     for the specified index and returns the 60-day predictive trajectory.
@@ -66,7 +71,7 @@ def generate_forecast(payload: ForecastRequest):
 
     try:
         forecaster = FreightForecaster()
-        forecast_data = forecaster.get_full_forecast(index_name)
+        forecast_data = forecaster.get_full_forecast(index_name, db=db)
 
         forecast_items = [
             ForecastItem(
@@ -100,7 +105,10 @@ def generate_forecast(payload: ForecastRequest):
     response_model=ForecastResponse,
     summary="Retrieve current forecast for an index (cached or freshly generated)",
 )
-def get_forecast(index_name: str):
+def get_forecast(
+    index_name: str,
+    db: Session = Depends(get_db),
+):
     """
     Retrieves the 60-day forecast for the given index (e.g. BCI, BPI, BSI, BRENT_CRUDE, BUNKER_SIN).
     Returns cached prediction if available within 15 minutes, otherwise triggers fresh model generation.
@@ -115,7 +123,7 @@ def get_forecast(index_name: str):
     # Generate on-demand if cache miss
     try:
         forecaster = FreightForecaster()
-        forecast_data = forecaster.get_full_forecast(idx)
+        forecast_data = forecaster.get_full_forecast(idx, db=db)
 
         forecast_items = [
             ForecastItem(

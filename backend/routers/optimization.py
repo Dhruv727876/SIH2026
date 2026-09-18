@@ -86,10 +86,13 @@ def run_vessel_charter_optimization(
         str(payload.disruption_name or "").strip(),
     )
 
-    cached_res = get_cached_optimization(cache_key)
-    if cached_res is not None:
-        logger.info(f"Returning cached MILP optimization response for key: {cache_key}")
-        return cached_res
+    if not payload.force_refresh:
+        cached_res = get_cached_optimization(cache_key)
+        if cached_res is not None:
+            logger.info(f"Returning cached MILP optimization response for key: {cache_key}")
+            cached_copy = cached_res.model_copy()
+            cached_copy.is_cached = True
+            return cached_copy
 
     try:
         optimizer = VesselCharterOptimizer()
@@ -99,6 +102,8 @@ def run_vessel_charter_optimization(
             planning_horizon_days=payload.planning_horizon_days,
             origin_port=payload.origin_port or "Australia",
             disruption_multiplier=payload.disruption_multiplier or 1.0,
+            db=db,
+            force_refresh=bool(payload.force_refresh),
         )
 
         schedule_items = [

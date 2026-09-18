@@ -104,28 +104,32 @@ class VesselCharterOptimizer:
         self.backend_api_url = (backend_api_url or API_BASE_URL).rstrip("/")
         self.forecaster = FreightForecaster(backend_api_url=self.backend_api_url)
 
-    def fetch_port_constraints(self, target_port: str) -> Dict[str, Any]:
+    def fetch_port_constraints(self, target_port: str, db: Optional[Any] = None) -> Dict[str, Any]:
         """
-        Fetches port draft limit and current waiting time from backend API or local config.
+        Fetches port draft limit and current waiting time from DB, local config, or backend API.
         """
-        try:
-            url = f"{self.backend_api_url}/api/v1/port-data"
-            params = {"port_name": target_port}
-            resp = requests.get(url, params=params, timeout=3)
-            if resp.status_code == 200:
-                data = resp.json()
-                if data and len(data) > 0:
-                    return data[0]
-        except Exception as e:
-            logger.warning(f"Could not fetch port data from backend ({e}). Using local lookup.")
+        if db is not None:
+            try:
+                from models.port_data import PortData
+                from sqlalchemy import select
+                stmt = select(PortData).where(PortData.port_name.ilike(target_port.strip()))
+                port_row = db.scalars(stmt).first()
+                if port_row:
+                    return {
+                        "port_name": port_row.port_name,
+                        "max_draft_meters": float(port_row.max_draft_meters),
+                        "current_waiting_time_hours": float(port_row.current_waiting_time_hours),
+                    }
+            except Exception as e:
+                logger.warning(f"Direct DB query for port constraints failed ({e}). Falling back to local lookup.")
 
-        # Fallback to local default configs
+        # Local default configs (instant in-memory lookup)
         for p in PORT_CONFIGS:
             if p["port_name"].lower() == target_port.lower():
                 return {
                     "port_name": p["port_name"],
-                    "max_draft_meters": p["max_draft_meters"],
-                    "current_waiting_time_hours": p.get("base_waiting", 36.0),
+                    "max_draft_meters": float(p["max_draft_meters"]),
+                    "current_waiting_time_hours": float(p.get("base_waiting", 36.0)),
                 }
 
         # Generic default
@@ -135,14 +139,23 @@ class VesselCharterOptimizer:
             "current_waiting_time_hours": 36.0,
         }
 
-    def fetch_freight_rate_forecasts(self, horizon_days: int = 30) -> Dict[str, List[Dict[str, Any]]]:
+    def fetch_freight_rate_forecasts(
+        self,
+        horizon_days: int = 30,
+        db: Optional[Any] = None,
+        force_refresh: bool = False,
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Fetches or generates rate forecasts for all vessel class indices (BCI, BPI, BSI).
         """
         rate_trajectories: Dict[str, List[Dict[str, Any]]] = {}
         for vessel_type, spec in VESSEL_SPECS.items():
             idx = spec["index_name"]
-            forecast = self.forecaster.get_full_forecast(index_name=idx)
+            forecast = self.forecaster.get_full_forecast(
+                index_name=idx,
+                force_refresh=force_refresh,
+                db=db,
+            )
             rate_trajectories[vessel_type] = forecast[:horizon_days]
         return rate_trajectories
 
@@ -153,6 +166,8 @@ class VesselCharterOptimizer:
         planning_horizon_days: int = 30,
         origin_port: str = "Australia",
         disruption_multiplier: float = 1.0,
+        db: Optional[Any] = None,
+        force_refresh: bool = False,
     ) -> Dict[str, Any]:
         """
         Formulates and solves the MILP charter allocation problem with route distance multipliers.
@@ -168,14 +183,18 @@ class VesselCharterOptimizer:
         )
 
         # 1. Fetch Port Constraints & Demurrage
-        port_info = self.fetch_port_constraints(target_port)
+        port_info = self.fetch_port_constraints(target_port, db=db)
         max_draft = float(port_info["max_draft_meters"])
         waiting_hours = float(port_info.get("current_waiting_time_hours", 36.0))
         demurrage_days = waiting_hours / 24.0
         expected_demurrage_per_vessel = demurrage_days * DEMURRAGE_DAILY_RATE_USD
 
         # 2. Fetch Multi-Class Freight Rate Forecasts
-        forecasts = self.fetch_freight_rate_forecasts(horizon_days=planning_horizon_days)
+        forecasts = self.fetch_freight_rate_forecasts(
+            horizon_days=planning_horizon_days,
+            db=db,
+            force_refresh=force_refresh,
+        )
 
         # 3. Determine Feasible Vessel Classes by Draft
         feasible_vessels = []

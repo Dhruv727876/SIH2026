@@ -10,7 +10,7 @@ export const apiClient = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 15000,
+  timeout: 30000,
 });
 
 export interface ForecastItem {
@@ -35,6 +35,7 @@ export interface OptimizationRequest {
   planning_horizon_days: number;
   disruption_multiplier?: number;
   disruption_name?: string;
+  force_refresh?: boolean;
 }
 
 export interface VesselScheduleItem {
@@ -63,6 +64,7 @@ export interface OptimizationResponse {
   message?: string;
   active_disruption_name?: string;
   disruption_multiplier?: number;
+  is_cached?: boolean;
 }
 
 export interface PortDataResponse {

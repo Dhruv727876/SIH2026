@@ -164,6 +164,46 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Accessibility: Load saved font size preference on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("dss_text_size_multiplier");
+      if (saved) {
+        const val = parseFloat(saved);
+        if (!isNaN(val) && val >= 0.8 && val <= 1.3) {
+          setFontSizeMultiplier(val);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Accessibility: Apply root font-size scaling across the entire document
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.style.fontSize = `${fontSizeMultiplier * 100}%`;
+      document.documentElement.setAttribute(
+        "data-font-size",
+        fontSizeMultiplier < 0.95 ? "small" : fontSizeMultiplier > 1.05 ? "large" : "normal"
+      );
+    }
+    return () => {
+      if (typeof document !== "undefined") {
+        document.documentElement.style.fontSize = "";
+      }
+    };
+  }, [fontSizeMultiplier]);
+
+  const handleSetFontSize = (multiplier: number) => {
+    setFontSizeMultiplier(multiplier);
+    try {
+      localStorage.setItem("dss_text_size_multiplier", multiplier.toString());
+    } catch (e) {
+      // ignore
+    }
+  };
+
   const handleApplyDisruption = (disruption: {
     eventType: string;
     eventName: string;
@@ -181,17 +221,18 @@ export default function DashboardPage() {
       disruption_multiplier: disruption.multiplier,
       disruption_name: disruption.eventName,
     };
-    handleRunOptimization(updated, disruption.multiplier);
+    handleRunOptimization(updated, disruption.multiplier, true);
   };
 
   const handleResetDisruption = () => {
     setActiveDisruption(null);
-    handleRunOptimization({ ...request, disruption_multiplier: 1.0, disruption_name: undefined }, 1.0);
+    handleRunOptimization({ ...request, disruption_multiplier: 1.0, disruption_name: undefined }, 1.0, true);
   };
 
   const handleRunOptimization = async (
     overrideParams?: Partial<OptimizationRequest>,
-    shockMultiplierOverride?: number
+    shockMultiplierOverride?: number,
+    forceRefresh?: boolean
   ) => {
     const currentMultiplier =
       shockMultiplierOverride !== undefined
@@ -200,11 +241,14 @@ export default function DashboardPage() {
         ? activeDisruption.multiplier
         : 1.0;
 
+    const shouldForceRefresh = forceRefresh ?? hasGeneratedPlan;
+
     const payload: OptimizationRequest = {
       ...request,
       ...overrideParams,
       disruption_multiplier: currentMultiplier,
       disruption_name: activeDisruption ? activeDisruption.eventName : undefined,
+      force_refresh: shouldForceRefresh,
     };
 
     setOptimizing(true);
@@ -212,10 +256,23 @@ export default function DashboardPage() {
 
     try {
       const result = await runOptimization(payload);
+
+      // Enforce at least 450ms visual solving state for responsive, unambiguous user feedback
+      const elapsed = performance.now() - startTime;
+      if (elapsed < 450) {
+        await new Promise((resolve) => setTimeout(resolve, 450 - elapsed));
+      }
+
       setOptimizationResult(result);
       setHasGeneratedPlan(true);
     } catch (err: any) {
       console.warn("Backend optimization request failed, recalculating locally:", err);
+
+      const elapsed = performance.now() - startTime;
+      if (elapsed < 450) {
+        await new Promise((resolve) => setTimeout(resolve, 450 - elapsed));
+      }
+
       generateFallbackOptimization(payload, currentMultiplier);
       setHasGeneratedPlan(true);
     } finally {
@@ -381,7 +438,7 @@ export default function DashboardPage() {
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            handleRunOptimization();
+            handleRunOptimization(undefined, undefined, true);
           }}
         >
           {/* Row 1: Cargo Volume & Origin Port */}
@@ -467,14 +524,18 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Row 3: Planning Window & Consortium Allocation */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-[#001f3f] flex items-center justify-between">
-                <span>Planning Horizon Window</span>
-                <span className="text-[10px] text-[#64748b]">Laycan Allocation</span>
+          {/* Row 3: Planning Horizon Window (Full Row with Quick Presets) */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-[#001f3f]">
+                Planning Horizon Window
               </label>
-              <div className="flex items-center rounded border border-[#cbd5e1] bg-white focus-within:border-[#12355b]">
+              <span className="text-[10px] text-[#64748b]">
+                Laycan Dispatch Window (7 to 60 Days)
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 flex items-center rounded border border-[#cbd5e1] bg-white focus-within:border-[#12355b] focus-within:ring-1 focus-within:ring-[#12355b]">
                 <input
                   className="w-full h-[38px] px-3 text-sm font-mono text-[#0d1c2e] bg-transparent focus:outline-none"
                   type="number"
@@ -489,13 +550,21 @@ export default function DashboardPage() {
                   Days
                 </span>
               </div>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-[#001f3f]">Consortium Allocation</label>
-              <div className="flex items-center rounded border border-[#cbd5e1] bg-[#f8f9ff] px-3 h-[38px] text-xs font-semibold text-[#12355b] justify-between">
-                <span>SAIL (Rourkela/Bhilai) + RINL Vizag</span>
-                <span className="material-symbols-outlined text-[16px] text-[#475569]">domain</span>
+              <div className="hidden sm:flex items-center gap-1.5">
+                {[15, 30, 45, 60].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => setRequest((prev) => ({ ...prev, planning_horizon_days: days }))}
+                    className={`h-[38px] px-2.5 rounded border text-xs font-semibold transition-colors cursor-pointer ${
+                      request.planning_horizon_days === days
+                        ? "bg-[#12355b] text-white border-[#12355b]"
+                        : "bg-[#f8f9ff] text-[#475569] border-[#cbd5e1] hover:bg-[#e2e8f0]"
+                    }`}
+                  >
+                    {days}D
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -524,26 +593,38 @@ export default function DashboardPage() {
 
             {constraintsExpanded && (
               <div className="px-4 pb-3.5 pt-1 grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-[#e2e8f0] bg-white">
-                <div className="flex flex-col p-2 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
-                  <span className="text-[10px] uppercase font-bold text-[#64748b]">Max Nav Draft Limit</span>
-                  <span className="text-sm font-bold text-[#001f3f]">
+                {/* 1. Dynamic Physical Port Constraint (Verified via Port Authority & Backend) */}
+                <div className="flex flex-col p-2.5 bg-[#eff4ff] rounded border border-[#bfd5fe]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-[#12355b]">Max Nav Draft Limit</span>
+                    <span className="text-[9px] font-bold bg-[#12355b] text-white px-1.5 py-0.2 rounded">Live Port Rule</span>
+                  </div>
+                  <span className="text-sm font-bold text-[#001f3f] mt-1">
                     {currentDischargeMeta.draftLimit.toFixed(2)} Metres
                   </span>
-                  <span className="text-[10px] text-[#94a3b8] mt-0.5">
-                    {request.target_port} Port Authority Circular
+                  <span className="text-[10px] text-[#2563eb] font-medium mt-0.5">
+                    Dynamic: Enforced for {request.target_port}
                   </span>
                 </div>
 
-                <div className="flex flex-col p-2 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
-                  <span className="text-[10px] uppercase font-bold text-[#64748b]">Demurrage Tolerance</span>
-                  <span className="text-sm font-bold text-[#001f3f]">$18,500 / day</span>
-                  <span className="text-[10px] text-[#94a3b8] mt-0.5">Baltic C5 Cap Reference</span>
+                {/* 2. Industry Reference Benchmark Policy */}
+                <div className="flex flex-col p-2.5 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-[#64748b]">Demurrage Tolerance</span>
+                    <span className="text-[9px] font-medium bg-[#f1f5f9] text-[#64748b] px-1.5 py-0.2 rounded border border-[#cbd5e1]">Industry Std</span>
+                  </div>
+                  <span className="text-sm font-bold text-[#001f3f] mt-1">$18,500 / day</span>
+                  <span className="text-[10px] text-[#64748b] mt-0.5">Baltic C5 Cap Benchmark</span>
                 </div>
 
-                <div className="flex flex-col p-2 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
-                  <span className="text-[10px] uppercase font-bold text-[#64748b]">Vessel Age Ceiling</span>
-                  <span className="text-sm font-bold text-[#001f3f]">&le; 15 Years</span>
-                  <span className="text-[10px] text-[#94a3b8] mt-0.5">DG Shipping Mandate</span>
+                {/* 3. Statutory Regulatory Policy */}
+                <div className="flex flex-col p-2.5 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-[#64748b]">Vessel Age Ceiling</span>
+                    <span className="text-[9px] font-medium bg-[#f1f5f9] text-[#64748b] px-1.5 py-0.2 rounded border border-[#cbd5e1]">PSU Policy</span>
+                  </div>
+                  <span className="text-sm font-bold text-[#001f3f] mt-1">&le; 15 Years</span>
+                  <span className="text-[10px] text-[#64748b] mt-0.5">DG Shipping Statutory Rule</span>
                 </div>
               </div>
             )}
@@ -575,10 +656,7 @@ export default function DashboardPage() {
   );
 
   return (
-    <div
-      className="min-h-screen bg-[#f8f9ff] text-[#0d1c2e] flex flex-col font-sans"
-      style={{ fontSize: `${fontSizeMultiplier}rem` }}
-    >
+    <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2e] flex flex-col font-sans">
       {/* 1. Official Government of India Header */}
       <header className="sticky top-0 left-0 right-0 w-full z-50 shadow-[0_1px_8px_rgba(0,0,0,0.06)] bg-white">
         {/* Top Institutional Utility Strip */}
@@ -609,32 +687,48 @@ export default function DashboardPage() {
               </div>
 
               {/* Font Size Accessibility Adjusters */}
-              <div className="flex items-center gap-1 bg-[#f1f5f9] p-0.5 rounded border border-[#cbd5e1]">
+              <div
+                className="flex items-center gap-1 bg-[#f1f5f9] p-0.5 rounded border border-[#cbd5e1]"
+                role="group"
+                aria-label="Text size accessibility controls"
+              >
                 <button
-                  onClick={() => setFontSizeMultiplier(0.92)}
+                  onClick={() => handleSetFontSize(0.88)}
                   title="Smaller Text (A-)"
-                  className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
-                    fontSizeMultiplier < 1.0 ? "bg-[#12355b] text-white" : "text-[#475569] hover:bg-[#e2e8f0]"
+                  aria-label="Decrease text size"
+                  aria-pressed={fontSizeMultiplier < 0.95}
+                  className={`px-2 py-0.5 rounded text-xs font-semibold transition-all cursor-pointer ${
+                    fontSizeMultiplier < 0.95
+                      ? "bg-[#12355b] text-white shadow-xs font-bold"
+                      : "text-[#475569] hover:bg-[#e2e8f0]"
                   }`}
                   type="button"
                 >
                   A-
                 </button>
                 <button
-                  onClick={() => setFontSizeMultiplier(1.0)}
+                  onClick={() => handleSetFontSize(1.0)}
                   title="Standard Text (A)"
-                  className={`px-1.5 py-0.5 rounded text-xs font-bold ${
-                    fontSizeMultiplier === 1.0 ? "bg-[#12355b] text-white" : "text-[#475569] hover:bg-[#e2e8f0]"
+                  aria-label="Reset text size to standard"
+                  aria-pressed={fontSizeMultiplier >= 0.95 && fontSizeMultiplier <= 1.05}
+                  className={`px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer ${
+                    fontSizeMultiplier >= 0.95 && fontSizeMultiplier <= 1.05
+                      ? "bg-[#12355b] text-white shadow-xs"
+                      : "text-[#475569] hover:bg-[#e2e8f0]"
                   }`}
                   type="button"
                 >
                   A
                 </button>
                 <button
-                  onClick={() => setFontSizeMultiplier(1.08)}
+                  onClick={() => handleSetFontSize(1.15)}
                   title="Larger Text (A+)"
-                  className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
-                    fontSizeMultiplier > 1.0 ? "bg-[#12355b] text-white" : "text-[#475569] hover:bg-[#e2e8f0]"
+                  aria-label="Increase text size"
+                  aria-pressed={fontSizeMultiplier > 1.05}
+                  className={`px-2 py-0.5 rounded text-xs font-semibold transition-all cursor-pointer ${
+                    fontSizeMultiplier > 1.05
+                      ? "bg-[#12355b] text-white shadow-xs font-bold"
+                      : "text-[#475569] hover:bg-[#e2e8f0]"
                   }`}
                   type="button"
                 >

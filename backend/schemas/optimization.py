@@ -31,6 +31,10 @@ class OptimizationRequest(BaseModel):
         default=None,
         description="Optional name of active disruption event",
     )
+    force_refresh: Optional[bool] = Field(
+        default=False,
+        description="If True, forces re-execution of the MILP solver and bypasses cached plans",
+    )
 
 
 class VesselScheduleItem(BaseModel):
@@ -60,3 +64,5 @@ class OptimizationResponse(BaseModel):
         description="Recommended vessel chartering schedule",
     )
     message: Optional[str] = None
+    is_cached: Optional[bool] = Field(default=False, description="True if response was retrieved from deterministic cache")
+

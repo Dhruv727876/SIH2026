@@ -1,9 +1,11 @@
+import copy
 import logging
 import math
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import random
 import numpy as np
 import pandas as pd
@@ -12,6 +14,19 @@ import requests
 # Enforce global determinism
 np.random.seed(42)
 random.seed(42)
+
+# In-memory forecast cache to avoid re-fitting Prophet Stan chains on every optimization solve:
+# Key: (index_name, disruption_event) -> (timestamp, List[Dict[str, Any]])
+_FORECAST_CACHE: Dict[Tuple[str, Optional[str]], Tuple[float, List[Dict[str, Any]]]] = {}
+_FORECAST_CACHE_TTL = 900  # 15 minutes
+
+
+def clear_forecast_cache():
+    """Invalidates the forecaster in-memory cache."""
+    global _FORECAST_CACHE
+    _FORECAST_CACHE.clear()
+    logger.info("Forecaster in-memory cache cleared successfully.")
+
 
 # Add parent directory to path so we can import from data_pipeline
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -40,9 +55,9 @@ class FreightForecaster:
     def __init__(self, backend_api_url: Optional[str] = None):
         self.backend_api_url = (backend_api_url or API_BASE_URL).rstrip("/")
 
-    def fetch_historical_data(self, index_name: str, limit: int = 180) -> pd.DataFrame:
+    def fetch_historical_data(self, index_name: str, limit: int = 180, db: Optional[Any] = None) -> pd.DataFrame:
         """
-        Fetches historical records from FastAPI backend, Kaggle dataset, or synthetic fallback.
+        Fetches historical records from DB, Kaggle dataset, backend API, or synthetic fallback.
         """
         # If explicitly asking for Kaggle BDI, load from CSV
         if index_name == "BDI_KAGGLE":
@@ -51,17 +66,46 @@ class FreightForecaster:
                 return df_kaggle
 
         records: List[Dict[str, Any]] = []
-        try:
-            url = f"{self.backend_api_url}/api/v1/market-data"
-            params = {"index_name": index_name, "limit": limit}
-            resp = requests.get(url, params=params, timeout=10)
-            if resp.status_code == 200:
-                records = resp.json()
-                logger.info(f"Retrieved {len(records)} records for {index_name} from backend API.")
-        except Exception as e:
-            logger.warning(f"Could not connect to backend API ({e}). Using synthetic series fallback.")
 
-        # If backend returned no records, check if Kaggle data exists for generic BDI or generate synthetic
+        # 1. First priority: Direct DB Session if running within backend process
+        if db is not None:
+            try:
+                from models.market_data import MarketData
+                from sqlalchemy import select
+                stmt = (
+                    select(MarketData)
+                    .where(MarketData.index_name == index_name)
+                    .order_by(MarketData.timestamp.desc())
+                    .limit(limit)
+                )
+                db_rows = db.scalars(stmt).all()
+                if db_rows and len(db_rows) >= 15:
+                    records = [
+                        {
+                            "timestamp": r.timestamp.isoformat() if hasattr(r.timestamp, "isoformat") else str(r.timestamp),
+                            "value": float(r.value),
+                            "index_name": r.index_name,
+                            "currency": r.currency,
+                        }
+                        for r in db_rows
+                    ]
+                    logger.info(f"Retrieved {len(records)} records for {index_name} directly from database.")
+            except Exception as e:
+                logger.warning(f"Direct DB query for market data failed ({e}).")
+
+        # 2. Only attempt HTTP call if no direct DB provided and not localhost self-call
+        if not records and db is None:
+            try:
+                url = f"{self.backend_api_url}/api/v1/market-data"
+                params = {"index_name": index_name, "limit": limit}
+                resp = requests.get(url, params=params, timeout=1.5)
+                if resp.status_code == 200:
+                    records = resp.json()
+                    logger.info(f"Retrieved {len(records)} records for {index_name} from backend API.")
+            except Exception as e:
+                logger.debug(f"Could not connect to backend API ({e}). Using synthetic series fallback.")
+
+        # 3. If backend returned no records, check if Kaggle data exists for generic BDI or generate synthetic
         if len(records) < 15:
             if index_name in ("BDI", "BDI_KAGGLE"):
                 df_k = load_kaggle_bdi_data()
@@ -371,16 +415,30 @@ class FreightForecaster:
         self,
         index_name: str,
         disruption_event: Optional[str] = None,
+        force_refresh: bool = False,
+        db: Optional[Any] = None,
     ) -> List[Dict[str, Any]]:
         """
         Combines short-term (1-15 days) and long-term (16-60 days)
         into a unified, continuous 60-day prediction trajectory.
         Optionally applies a historical disruption shock multiplier.
         """
+        cache_key = (
+            str(index_name).strip().upper(),
+            str(disruption_event).strip().upper() if disruption_event else None,
+        )
+        if not force_refresh and cache_key in _FORECAST_CACHE:
+            cached_ts, cached_predictions = _FORECAST_CACHE[cache_key]
+            if time.time() - cached_ts < _FORECAST_CACHE_TTL:
+                logger.info(f"Returning cached forecast trajectory for {index_name} (age: {int(time.time() - cached_ts)}s)")
+                return copy.deepcopy(cached_predictions)
+            else:
+                del _FORECAST_CACHE[cache_key]
+
         logger.info(f"Initiating hybrid freight forecast for index: {index_name} (Disruption: {disruption_event})...")
         np.random.seed(42)
         random.seed(42)
-        df = self.fetch_historical_data(index_name)
+        df = self.fetch_historical_data(index_name, db=db)
 
         # 1. Generate 15-day short-term forecast
         short_term_preds = self.train_and_predict_short_term(df, horizon=15)
@@ -424,6 +482,7 @@ class FreightForecaster:
                     item["upper_bound"] = round(item["upper_bound"] * multiplier, 2)
 
         logger.info(f"Successfully generated {len(combined)}-day unified forecast for {index_name}.")
+        _FORECAST_CACHE[cache_key] = (time.time(), copy.deepcopy(combined))
         return combined
 
 
