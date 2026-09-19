@@ -35,6 +35,10 @@ class OptimizationRequest(BaseModel):
         default=False,
         description="If True, forces re-execution of the MILP solver and bypasses cached plans",
     )
+    allow_lighterage: Optional[bool] = Field(
+        default=True,
+        description="Whether to allow mid-sea lighterage for large vessels (e.g. Capesize at Sandheads) for shallow ports",
+    )
 
 
 class VesselScheduleItem(BaseModel):
@@ -62,6 +66,46 @@ class OptimizationResponse(BaseModel):
     vessel_schedule: List[VesselScheduleItem] = Field(
         default_factory=list,
         description="Recommended vessel chartering schedule",
+    )
+    strategy_used: Optional[str] = Field(
+        default="DIRECT_DISCHARGE",
+        description="Logistics strategy selected ('DIRECT_DISCHARGE' or 'MID_SEA_LIGHTERAGE')",
+    )
+    lighterage_penalty_applied: Optional[float] = Field(
+        default=0.0,
+        description="Total lighterage penalty cost applied in USD (transshipment fee + demurrage wait)",
+    )
+    lighterage_vessel_type: Optional[str] = Field(
+        default=None,
+        description="The type of vessel used for the secondary transfer (e.g., Supramax)",
+    )
+    lighterage_vessel_count: Optional[int] = Field(
+        default=None,
+        description="Number of secondary vessels required to move the cargo from anchorage to port",
+    )
+    coa_rate_usd_per_mt: Optional[float] = Field(
+        default=None,
+        description="Forecasted 6-month forward COA rate per MT",
+    )
+    coa_total_cost_usd: Optional[float] = Field(
+        default=None,
+        description="Total cost if fulfilled via 6-month COA",
+    )
+    coa_savings_usd: Optional[float] = Field(
+        default=None,
+        description="Financial savings of choosing the recommended strategy",
+    )
+    procurement_recommendation: Optional[str] = Field(
+        default=None,
+        description="'LOCK_IN_COA' or 'STAY_SPOT'",
+    )
+    market_trend: Optional[str] = Field(
+        default=None,
+        description="'CONTANGO', 'BACKWARDATION', or 'STABLE'",
+    )
+    coa_discount_pct: Optional[float] = Field(
+        default=None,
+        description="Percentage discount or premium applied to COA rate",
     )
     message: Optional[str] = None
     is_cached: Optional[bool] = Field(default=False, description="True if response was retrieved from deterministic cache")

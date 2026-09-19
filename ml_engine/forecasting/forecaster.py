@@ -485,6 +485,88 @@ class FreightForecaster:
         _FORECAST_CACHE[cache_key] = (time.time(), copy.deepcopy(combined))
         return combined
 
+    def get_medium_term_coa_rate(
+        self,
+        vessel_type: str = "Capesize",
+        required_cargo_mt: float = 150000.0,
+        horizon_days: int = 180,
+        db: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calculates the forecasted 6-Month forward Contract of Affreightment (COA) rate ($/MT)
+        using the Prophet long-term model trajectory for 180 days (T+1 to T+180 / 6 Months).
+        Detects forward market trend ('CONTANGO', 'BACKWARDATION', or 'STABLE') by comparing
+        Short-Term (Days 1-30) vs Long-Term (Days 150-180), and applies real-world Volume-Tiered pricing:
+          - >= 300,000 MT: 5% volume discount (0.95x)
+          - >= 150,000 MT: 2% volume discount (0.98x)
+          - < 150,000 MT:  2% small parcel risk premium (1.02x)
+        Returns: {"rate": float, "trend": str, "discount_pct": float}
+        """
+        normalized_type = str(vessel_type or "Capesize").strip().capitalize()
+        mapping = {
+            "Capesize": {"index": "BCI", "scale": 1.0 / 140.0, "fallback": 18.0},
+            "Panamax": {"index": "BPI", "scale": 1.0 / 85.0, "fallback": 20.5},
+            "Supramax": {"index": "BSI", "scale": 1.0 / 58.0, "fallback": 23.5},
+        }
+        spec = mapping.get(normalized_type, mapping["Capesize"])
+        index_name = spec["index"]
+        scale = spec["scale"]
+
+        try:
+            df = self.fetch_historical_data(index_name, db=db)
+            forecast_180 = self.train_and_predict_long_term(df, horizon=horizon_days)
+            if not forecast_180:
+                return {"rate": spec["fallback"], "trend": "STABLE", "discount_pct": 0.0}
+
+            # 1. Short-Term Average (Days 1 to 30)
+            short_term_slice = forecast_180[:30] if len(forecast_180) >= 30 else forecast_180
+            short_term_avg = sum(float(item["predicted_value"]) for item in short_term_slice) / len(short_term_slice)
+
+            # 2. Long-Term Average (Days 150 to 180)
+            long_term_slice = forecast_180[149:180] if len(forecast_180) >= 180 else forecast_180[-30:]
+            long_term_avg = sum(float(item["predicted_value"]) for item in long_term_slice) / len(long_term_slice)
+
+            # 3. Market Trend Determination (Contango / Backwardation / Stable)
+            if long_term_avg > 1.05 * short_term_avg:
+                market_trend = "CONTANGO"
+            elif long_term_avg < 0.95 * short_term_avg:
+                market_trend = "BACKWARDATION"
+            else:
+                market_trend = "STABLE"
+
+            # 4. Baseline 180-Day Forward Rate
+            avg_index_points = sum(float(item["predicted_value"]) for item in forecast_180) / len(forecast_180)
+            base_rate_usd_mt = avg_index_points * scale
+
+            # 5. Volume-Tiered COA Pricing
+            cargo_qty = float(required_cargo_mt or 150000.0)
+            if cargo_qty >= 300000.0:
+                discount_applied = 5.0
+                volume_multiplier = 0.95
+            elif cargo_qty >= 150000.0:
+                discount_applied = 2.0
+                volume_multiplier = 0.98
+            else:
+                discount_applied = -2.0
+                volume_multiplier = 1.02
+
+            final_rate = round(float(base_rate_usd_mt * volume_multiplier), 2)
+
+            logger.info(
+                f"Computed 6-Month COA for {normalized_type} ({index_name}): "
+                f"ShortTerm={short_term_avg:.1f}, LongTerm={long_term_avg:.1f} -> Trend={market_trend} | "
+                f"Base Rate=${base_rate_usd_mt:.2f}/MT, Cargo={cargo_qty:,.0f} MT, Disc={discount_applied:+.1f}% -> Final Rate=${final_rate}/MT"
+            )
+
+            return {
+                "rate": final_rate,
+                "trend": market_trend,
+                "discount_pct": discount_applied,
+            }
+        except Exception as e:
+            logger.warning(f"Error calculating 6-month COA rate for {vessel_type} ({e}). Using fallback rate.")
+            return {"rate": spec["fallback"], "trend": "STABLE", "discount_pct": 0.0}
+
 
 if __name__ == "__main__":
     forecaster = FreightForecaster()

@@ -164,7 +164,7 @@ export default function FreightForecastChart({
   const isRising = parseFloat(deltaPct) >= 0;
 
   return (
-    <div className="w-full bg-white p-6 rounded border border-[#cbd5e1] shadow-sm mb-6" id="forecast-section">
+    <div className="w-full bg-white p-6 rounded border border-[#cbd5e1] shadow-sm mb-6 scroll-mt-28" id="forecast-section">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 mb-5 border-b border-[#e2e8f0]">
         <div className="flex items-center gap-3">

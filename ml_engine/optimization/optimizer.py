@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -166,11 +167,13 @@ class VesselCharterOptimizer:
         planning_horizon_days: int = 30,
         origin_port: str = "Australia",
         disruption_multiplier: float = 1.0,
+        allow_lighterage: bool = True,
         db: Optional[Any] = None,
         force_refresh: bool = False,
     ) -> Dict[str, Any]:
         """
         Formulates and solves the MILP charter allocation problem with route distance multipliers.
+        Evaluates Direct Discharge vs Mid-Sea Lighterage (e.g. Capesize at Sandheads) when port draft < 17.0m.
         """
         route_info = get_route_info(origin_port)
         route_mult = route_info["multiplier"]
@@ -179,7 +182,8 @@ class VesselCharterOptimizer:
 
         logger.info(
             f"Formulating MILP optimization for {required_cargo_mt:,.0f} MT cargo on route '{route_display}' "
-            f"(Route Mult: {route_mult}x, Combined: {combined_multiplier:.2f}x) over {planning_horizon_days} days..."
+            f"(Route Mult: {route_mult}x, Combined: {combined_multiplier:.2f}x, Allow Lighterage: {allow_lighterage}) "
+            f"over {planning_horizon_days} days..."
         )
 
         # 1. Fetch Port Constraints & Demurrage
@@ -196,51 +200,173 @@ class VesselCharterOptimizer:
             force_refresh=force_refresh,
         )
 
-        # 3. Determine Feasible Vessel Classes by Draft
-        feasible_vessels = []
+        # 3. Determine Feasible Vessel Classes by Direct Draft
+        direct_feasible_vessels = []
         for v_name, spec in VESSEL_SPECS.items():
             if spec["min_draft_m"] <= max_draft:
-                feasible_vessels.append(v_name)
+                direct_feasible_vessels.append(v_name)
             else:
-                logger.info(f"Vessel class {v_name} disallowed at {target_port} (requires {spec['min_draft_m']}m > max draft {max_draft}m).")
+                logger.info(f"Vessel class {v_name} disallowed directly at {target_port} (requires {spec['min_draft_m']}m > max draft {max_draft}m).")
 
-        if not feasible_vessels:
-            return {
-                "status": "Infeasible",
-                "message": f"Port {target_port} has max draft of {max_draft}m. No vessels in fleet can enter.",
-                "target_port": target_port,
-                "origin_port": route_info["origin_full"],
-                "route": route_display,
-                "total_estimated_cost_usd": 0.0,
-                "estimated_savings_usd": 0.0,
-                "vessel_schedule": [],
-            }
+        strategy_used = "DIRECT_DISCHARGE"
+        lighterage_penalty_applied = 0.0
 
-        # 4. Formulate and Solve MILP with PuLP (or Heuristic Fallback)
-        solution = self._solve_milp_pulp(
-            required_cargo_mt=required_cargo_mt,
-            feasible_vessels=feasible_vessels,
-            forecasts=forecasts,
-            horizon_days=planning_horizon_days,
-            demurrage_cost=expected_demurrage_per_vessel,
-            rate_multiplier=combined_multiplier,
-        )
+        # Debug logging for lighterage parameter tracking
+        logger.info(f"Target Port: {target_port} | Draft: {max_draft}m")
+        logger.info(f"Allow Lighterage Flag Received: {allow_lighterage} (Type: {type(allow_lighterage)})")
+        logger.info(f"Required Cargo: {required_cargo_mt} MT")
 
-        if solution["status"] != "Optimal":
-            # Fallback solver
-            solution = self._solve_greedy_fallback(
+        # 4. Multi-Scenario MILP Optimization (Direct Discharge vs Mid-Sea Lighterage)
+        if max_draft < 17.0 and allow_lighterage:
+            logger.info(
+                f"Target port {target_port} draft is {max_draft}m (< 17.0m Capesize limit) with allow_lighterage=True. "
+                "Evaluating Scenario A (Direct) vs Scenario B (Lighterage at Sandheads)..."
+            )
+
+            # --- Scenario A: Direct Allocation using only draft-compliant vessels ---
+            solution_a = None
+            cost_a = float("inf")
+            if direct_feasible_vessels:
+                solution_a = self._solve_milp_pulp(
+                    required_cargo_mt=required_cargo_mt,
+                    feasible_vessels=direct_feasible_vessels,
+                    forecasts=forecasts,
+                    horizon_days=planning_horizon_days,
+                    demurrage_cost=expected_demurrage_per_vessel,
+                    rate_multiplier=combined_multiplier,
+                )
+                if solution_a["status"] != "Optimal":
+                    solution_a = self._solve_greedy_fallback(
+                        required_cargo_mt=required_cargo_mt,
+                        feasible_vessels=direct_feasible_vessels,
+                        forecasts=forecasts,
+                        horizon_days=planning_horizon_days,
+                        demurrage_cost=expected_demurrage_per_vessel,
+                        rate_multiplier=combined_multiplier,
+                    )
+                if solution_a["status"] == "Optimal":
+                    cost_a = solution_a["total_cost"]
+
+            # --- Scenario B: Mid-Sea Lighterage with Capesize bulkers ---
+            # Allocate Capesize vessels (150k MT stems)
+            solution_b = self._solve_milp_pulp(
                 required_cargo_mt=required_cargo_mt,
-                feasible_vessels=feasible_vessels,
+                feasible_vessels=["Capesize"],
                 forecasts=forecasts,
                 horizon_days=planning_horizon_days,
                 demurrage_cost=expected_demurrage_per_vessel,
                 rate_multiplier=combined_multiplier,
             )
+            if solution_b["status"] != "Optimal":
+                solution_b = self._solve_greedy_fallback(
+                    required_cargo_mt=required_cargo_mt,
+                    feasible_vessels=["Capesize"],
+                    forecasts=forecasts,
+                    horizon_days=planning_horizon_days,
+                    demurrage_cost=expected_demurrage_per_vessel,
+                    rate_multiplier=combined_multiplier,
+                )
 
-        # 5. Compute Benchmark Naive Cost (Booking entirely on Day 1 using available largest vessels)
+            cost_b = float("inf")
+            total_lighterage_penalty = 0.0
+            if solution_b["status"] == "Optimal":
+                # Fixed lighterage penalty of $3.50 per MT transferred at Sandheads anchorage
+                transferred_cargo_mt = solution_b["total_cargo_delivered"]
+                transfer_fee = transferred_cargo_mt * 3.50
+
+                # 24-hour time penalty for the transfer (1 full day demurrage per Capesize vessel)
+                num_cape_vessels = sum(int(item["quantity"]) for item in solution_b["vessel_schedule"])
+                time_penalty = num_cape_vessels * (24.0 / 24.0) * DEMURRAGE_DAILY_RATE_USD
+                total_lighterage_penalty = transfer_fee + time_penalty
+                cost_b = solution_b["total_cost"] + total_lighterage_penalty
+
+                # Distribute lighterage penalty to schedule items for consistent accounting
+                for item in solution_b["vessel_schedule"]:
+                    stem_qty = int(item["quantity"])
+                    stem_cargo = float(item["total_cargo_mt"])
+                    stem_penalty = (stem_cargo * 3.50) + (stem_qty * DEMURRAGE_DAILY_RATE_USD)
+                    item["estimated_trip_cost_usd"] = round(float(item["estimated_trip_cost_usd"]) + stem_penalty, 2)
+
+            # Log exact costs of both scenarios
+            logger.info(f"Scenario A (Direct) Cost: {cost_a} | Scenario B (Lighterage) Cost: {cost_b}")
+
+            # Compare Scenario A and Scenario B -> select the one with minimum total cost
+            if cost_b < cost_a:
+                solution = solution_b
+                solution["total_cost"] = cost_b
+                strategy_used = "MID_SEA_LIGHTERAGE"
+                lighterage_penalty_applied = total_lighterage_penalty
+
+                # Assume designated lighterage vessel for Haldia (12.0m draft) is Supramax (50,000 MT, 11.5m draft)
+                lighterage_vessel_count = math.ceil(required_cargo_mt / 50000)
+                solution["lighterage_vessel_type"] = "Supramax"
+                solution["lighterage_vessel_count"] = lighterage_vessel_count
+
+                logger.info(
+                    f"Selected Scenario B (MID_SEA_LIGHTERAGE): Total Cost=${cost_b:,.2f} vs Direct Scenario A=${cost_a:,.2f} "
+                    f"(Lighterage Surcharge=${total_lighterage_penalty:,.2f}, Secondary Transfer: {lighterage_vessel_count}x Supramax)"
+                )
+            elif solution_a and solution_a["status"] == "Optimal":
+                solution = solution_a
+                strategy_used = "DIRECT_DISCHARGE"
+                lighterage_penalty_applied = 0.0
+                logger.info(
+                    f"Selected Scenario A (DIRECT_DISCHARGE): Total Cost=${cost_a:,.2f} <= Lighterage Scenario B=${cost_b:,.2f}"
+                )
+            else:
+                return {
+                    "status": "Infeasible",
+                    "message": f"Port {target_port} has max draft of {max_draft}m. Neither direct discharge nor lighterage feasible.",
+                    "target_port": target_port,
+                    "origin_port": route_info["origin_full"],
+                    "route": route_display,
+                    "total_estimated_cost_usd": 0.0,
+                    "estimated_savings_usd": 0.0,
+                    "vessel_schedule": [],
+                    "strategy_used": "DIRECT_DISCHARGE",
+                    "lighterage_penalty_applied": 0.0,
+                }
+        else:
+            # Standard single scenario when draft >= 17.0m or lighterage disabled
+            if not direct_feasible_vessels:
+                return {
+                    "status": "Infeasible",
+                    "message": f"Port {target_port} has max draft of {max_draft}m. No vessels in fleet can enter.",
+                    "target_port": target_port,
+                    "origin_port": route_info["origin_full"],
+                    "route": route_display,
+                    "total_estimated_cost_usd": 0.0,
+                    "estimated_savings_usd": 0.0,
+                    "vessel_schedule": [],
+                    "strategy_used": "DIRECT_DISCHARGE",
+                    "lighterage_penalty_applied": 0.0,
+                }
+
+            solution = self._solve_milp_pulp(
+                required_cargo_mt=required_cargo_mt,
+                feasible_vessels=direct_feasible_vessels,
+                forecasts=forecasts,
+                horizon_days=planning_horizon_days,
+                demurrage_cost=expected_demurrage_per_vessel,
+                rate_multiplier=combined_multiplier,
+            )
+            if solution["status"] != "Optimal":
+                solution = self._solve_greedy_fallback(
+                    required_cargo_mt=required_cargo_mt,
+                    feasible_vessels=direct_feasible_vessels,
+                    forecasts=forecasts,
+                    horizon_days=planning_horizon_days,
+                    demurrage_cost=expected_demurrage_per_vessel,
+                    rate_multiplier=combined_multiplier,
+                )
+            strategy_used = "DIRECT_DISCHARGE"
+            lighterage_penalty_applied = 0.0
+
+        # 5. Compute Benchmark Naive Cost (Booking on Day 1 at spot rates)
+        benchmark_vessels = direct_feasible_vessels if direct_feasible_vessels else ["Capesize"]
         naive_cost = self._compute_naive_benchmark(
             required_cargo_mt=required_cargo_mt,
-            feasible_vessels=feasible_vessels,
+            feasible_vessels=benchmark_vessels,
             forecasts=forecasts,
             demurrage_cost=expected_demurrage_per_vessel,
             rate_multiplier=combined_multiplier,
@@ -250,8 +376,8 @@ class VesselCharterOptimizer:
         estimated_savings = max(0.0, naive_cost - optimized_cost)
 
         logger.info(
-            f"Optimization result ({route_display}): Status={solution['status']}, "
-            f"Total Cost=${optimized_cost:,.2f}, Savings=${estimated_savings:,.2f}"
+            f"Optimization result ({route_display}): Strategy={strategy_used}, Status={solution['status']}, "
+            f"Total Cost=${optimized_cost:,.2f}, Savings=${estimated_savings:,.2f}, Lighterage Penalty=${lighterage_penalty_applied:,.2f}"
         )
 
         return {
@@ -267,6 +393,10 @@ class VesselCharterOptimizer:
             "estimated_savings_usd": round(float(estimated_savings), 2),
             "benchmark_naive_cost_usd": round(float(naive_cost), 2),
             "vessel_schedule": solution["vessel_schedule"],
+            "strategy_used": strategy_used,
+            "lighterage_penalty_applied": round(float(lighterage_penalty_applied), 2),
+            "lighterage_vessel_type": solution.get("lighterage_vessel_type"),
+            "lighterage_vessel_count": solution.get("lighterage_vessel_count"),
         }
 
     def _solve_milp_pulp(

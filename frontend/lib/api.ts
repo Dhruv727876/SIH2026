@@ -36,6 +36,7 @@ export interface OptimizationRequest {
   disruption_multiplier?: number;
   disruption_name?: string;
   force_refresh?: boolean;
+  allow_lighterage?: boolean;
 }
 
 export interface VesselScheduleItem {
@@ -61,6 +62,16 @@ export interface OptimizationResponse {
   estimated_savings_usd: number;
   benchmark_naive_cost_usd?: number;
   vessel_schedule: VesselScheduleItem[];
+  strategy_used?: "DIRECT_DISCHARGE" | "MID_SEA_LIGHTERAGE" | string;
+  lighterage_penalty_applied?: number;
+  lighterage_vessel_type?: string;
+  lighterage_vessel_count?: number;
+  coa_rate_usd_per_mt?: number;
+  coa_total_cost_usd?: number;
+  coa_savings_usd?: number;
+  procurement_recommendation?: "LOCK_IN_COA" | "STAY_SPOT";
+  market_trend?: "CONTANGO" | "BACKWARDATION" | "STABLE";
+  coa_discount_pct?: number;
   message?: string;
   active_disruption_name?: string;
   disruption_multiplier?: number;
@@ -107,6 +118,7 @@ export async function fetchForecast(indexName: string): Promise<ForecastResponse
 export async function runOptimization(
   payload: OptimizationRequest
 ): Promise<OptimizationResponse> {
+  console.log("🚀 Optimization Payload:", payload);
   const response = await apiClient.post<OptimizationResponse>("/optimize", payload);
   return response.data;
 }
