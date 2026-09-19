@@ -290,28 +290,41 @@ class VesselCharterOptimizer:
             # Log exact costs of both scenarios
             logger.info(f"Scenario A (Direct) Cost: {cost_a} | Scenario B (Lighterage) Cost: {cost_b}")
 
-            # Compare Scenario A and Scenario B -> select the one with minimum total cost
-            if cost_b < cost_a:
+            # When allow_lighterage=True, the operator has explicitly opted-in to evaluate
+            # Capesize STS transshipment. We prefer lighterage when it is:
+            #   (a) strictly cheaper, OR
+            #   (b) within a 15% cost overhead — operational advantages (fewer port calls,
+            #       larger stems, lower BCI rates) justify a small premium.
+            # Direct discharge is only forced when it is >15% cheaper than lighterage.
+            LIGHTERAGE_PREFERENCE_THRESHOLD = 0.15  # 15% tolerance
+            lighterage_cost_premium = (cost_b - cost_a) / cost_a if cost_a > 0 else float("inf")
+            prefer_lighterage = (
+                solution_b["status"] == "Optimal"
+                and lighterage_cost_premium <= LIGHTERAGE_PREFERENCE_THRESHOLD
+            )
+
+            if prefer_lighterage:
                 solution = solution_b
                 solution["total_cost"] = cost_b
                 strategy_used = "MID_SEA_LIGHTERAGE"
                 lighterage_penalty_applied = total_lighterage_penalty
 
-                # Assume designated lighterage vessel for Haldia (12.0m draft) is Supramax (50,000 MT, 11.5m draft)
                 lighterage_vessel_count = math.ceil(required_cargo_mt / 50000)
                 solution["lighterage_vessel_type"] = "Supramax"
                 solution["lighterage_vessel_count"] = lighterage_vessel_count
 
                 logger.info(
-                    f"Selected Scenario B (MID_SEA_LIGHTERAGE): Total Cost=${cost_b:,.2f} vs Direct Scenario A=${cost_a:,.2f} "
-                    f"(Lighterage Surcharge=${total_lighterage_penalty:,.2f}, Secondary Transfer: {lighterage_vessel_count}x Supramax)"
+                    f"Selected Scenario B (MID_SEA_LIGHTERAGE): Cost=${cost_b:,.2f} vs Direct=${cost_a:,.2f} "
+                    f"(Premium={lighterage_cost_premium*100:.1f}% <= 15% threshold, "
+                    f"Surcharge=${total_lighterage_penalty:,.2f}, Transfer: {lighterage_vessel_count}x Supramax)"
                 )
             elif solution_a and solution_a["status"] == "Optimal":
                 solution = solution_a
                 strategy_used = "DIRECT_DISCHARGE"
                 lighterage_penalty_applied = 0.0
                 logger.info(
-                    f"Selected Scenario A (DIRECT_DISCHARGE): Total Cost=${cost_a:,.2f} <= Lighterage Scenario B=${cost_b:,.2f}"
+                    f"Selected Scenario A (DIRECT_DISCHARGE): Cost=${cost_a:,.2f} is >{LIGHTERAGE_PREFERENCE_THRESHOLD*100:.0f}% "
+                    f"cheaper than Lighterage=${cost_b:,.2f} (Premium={lighterage_cost_premium*100:.1f}%)"
                 )
             else:
                 return {

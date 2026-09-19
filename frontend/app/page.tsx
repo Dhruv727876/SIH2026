@@ -202,7 +202,10 @@ export default function FreightDSSApp() {
         capeQty * (capeCap * capeBaseRate * multiplier + 32000 * multiplier) +
         lighterageSurcharge;
 
-      if (costB < costA) {
+      // Prefer lighterage when allow_lighterage=ON and cost premium <= 15%
+      const LIGHTERAGE_THRESHOLD = 0.15;
+      const lighteragePremium = costA > 0 ? (costB - costA) / costA : Infinity;
+      if (lighteragePremium <= LIGHTERAGE_THRESHOLD) {
         vType = "Capesize";
         cap = capeCap;
         strategyUsed = "MID_SEA_LIGHTERAGE";
