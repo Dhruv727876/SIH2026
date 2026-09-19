@@ -104,10 +104,14 @@ export default function WhatIfView({
   const baselineCost = baselineResult?.total_estimated_cost_usd || 6601275;
   const stressedCost = whatIfResult?.total_estimated_cost_usd;
   const costDeltaUsd = stressedCost ? stressedCost - baselineCost : 0;
+  const costDeltaSign = costDeltaUsd >= 0 ? "+" : "-";
+  const costDeltaAbsUsd = Math.abs(costDeltaUsd);
   const costDeltaPct = stressedCost
-    ? ((costDeltaUsd / baselineCost) * 100).toFixed(1)
+    ? Math.abs((costDeltaUsd / baselineCost) * 100).toFixed(1)
     : "0.0";
-  const costDeltaInrCr = ((costDeltaUsd * USD_TO_INR_RATE) / 10000000).toFixed(2);
+  const costDeltaPctSign = costDeltaUsd >= 0 ? "+" : "-";
+  const costDeltaInrCr = (Math.abs(costDeltaUsd) * USD_TO_INR_RATE / 10000000).toFixed(2);
+  const costDeltaInrSign = costDeltaUsd >= 0 ? "increases" : "decreases";
 
   return (
     <div className="space-y-4">
@@ -262,13 +266,13 @@ export default function WhatIfView({
                   </span>
                 </div>
                 <div className="text-2xl font-mono font-bold text-[#7f1d1d] mt-1">
-                  +${formatCurrency(costDeltaUsd)}{" "}
+                  {costDeltaSign}${formatCurrency(costDeltaAbsUsd)}{" "}
                   <span className="text-base text-[#991b1b] font-semibold">
-                    (+{costDeltaPct}% Cost Surge)
+                    ({costDeltaPctSign}{costDeltaPct}% Cost {costDeltaUsd >= 0 ? "Surge" : "Reduction"})
                   </span>
                 </div>
                 <p className="text-xs text-[#991b1b] mt-0.5">
-                  PSU Budget Impact: Landed freight cost increases by ₹{costDeltaInrCr} Crores.
+                  PSU Budget Impact: Landed freight cost {costDeltaInrSign} by ₹{costDeltaInrCr} Crores.
                 </p>
               </div>
             </div>
@@ -303,26 +307,40 @@ export default function WhatIfView({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2e8f0] text-[#0d1c2e]">
-                    {whatIfResult.vessel_schedule.map((stem, idx) => (
-                      <tr key={idx} className="hover:bg-[#f8f9ff]">
-                        <td className="py-2 px-3 flex items-center gap-1.5 text-[#475569]">
-                          <Calendar className="h-3 w-3 text-slate-400" />
-                          <span>{stem.date}</span>
-                        </td>
-                        <td className="py-2 px-3 font-semibold text-[#12355b]">
-                          {stem.vessel_type}
-                        </td>
-                        <td className="py-2 px-3">
-                          {formatInteger(stem.capacity_mt || stem.total_cargo_mt || 0)} MT
-                        </td>
-                        <td className="py-2 px-3 text-right text-[#b91c1c] font-bold">
-                          ${stem.freight_rate_usd_mt?.toFixed(2)}/MT
-                        </td>
-                        <td className="py-2 px-3 text-right font-bold text-[#001f3f]">
-                          ${formatCurrency(stem.estimated_trip_cost_usd || 0)}
-                        </td>
-                      </tr>
-                    ))}
+                    {whatIfResult.vessel_schedule.map((stem, idx) => {
+                      // estimated_trip_cost_usd is the TOTAL cost for all vessels in this stem batch
+                      // Divide by quantity to show per-vessel cost
+                      const qty = stem.quantity || 1;
+                      const totalBatchCost = stem.estimated_trip_cost_usd || 0;
+                      const perVesselCost = totalBatchCost > 0
+                        ? totalBatchCost / qty
+                        : (stem.capacity_mt || 80000) * (stem.freight_rate_usd_mt || 20);
+                      return (
+                        <tr key={idx} className="hover:bg-[#f8f9ff]">
+                          <td className="py-2 px-3 flex items-center gap-1.5 text-[#475569]">
+                            <Calendar className="h-3 w-3 text-slate-400" />
+                            <span>{stem.date}</span>
+                          </td>
+                          <td className="py-2 px-3 font-semibold text-[#12355b]">
+                            {stem.vessel_type}
+                          </td>
+                          <td className="py-2 px-3">
+                            {formatInteger(stem.capacity_mt || stem.total_cargo_mt || 0)} MT
+                          </td>
+                          <td className="py-2 px-3 text-right text-[#b91c1c] font-bold">
+                            ${stem.freight_rate_usd_mt?.toFixed(2)}/MT
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold text-[#001f3f]">
+                            ${formatCurrency(perVesselCost)}
+                            {qty > 1 && (
+                              <span className="block text-[10px] text-[#64748b] font-normal">
+                                ×{qty} = ${formatCurrency(totalBatchCost)} total
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
