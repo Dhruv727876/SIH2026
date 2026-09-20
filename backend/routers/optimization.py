@@ -216,6 +216,7 @@ def run_vessel_charter_optimization(
 
         # Log optimization audit to database if schedule was formed
         try:
+            db.rollback()
             primary_vessel = schedule_items[0].vessel_type if schedule_items else "Mixed"
             first_date = datetime.strptime(schedule_items[0].date, "%Y-%m-%d").date() if schedule_items else date.today()
 
@@ -231,6 +232,7 @@ def run_vessel_charter_optimization(
             db.add(log_entry)
             db.commit()
         except Exception as log_err:
+            db.rollback()
             logger.warning(f"Could not persist optimization log to database ({log_err}).")
 
         # Cache response under key for 15 minutes

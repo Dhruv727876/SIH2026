@@ -306,19 +306,8 @@ class FreightForecaster:
                 scaled_kaggle["value"] = scaled_kaggle["value"] * scaling_factor
                 training_df = scaled_kaggle
                 is_monthly_data = True
-        elif index_name == "BHSI":
-            kaggle_hs = load_kaggle_bdi_data(target_column="bulk_carrier_handysize_usd_day")
-            if not kaggle_hs.empty and len(kaggle_hs) >= 24:
-                logger.info("Enriching Handysize Prophet model with 25-year Kaggle Handysize rates.")
-                current_base = float(df["value"].iloc[-1]) if not df.empty else 750.0
-                kaggle_mean = float(kaggle_hs["value"].mean())
-                scaling_factor = (current_base / kaggle_mean) if kaggle_mean > 0 else 1.0
-
-                scaled_kaggle = kaggle_hs.copy()
-                scaled_kaggle["value"] = scaled_kaggle["value"] * scaling_factor
-                training_df = scaled_kaggle
-                is_monthly_data = True
         else:
+            # BCI, BPI, BSI, BHSI: Train Prophet directly on each index's specific series
             logger.info(f"Training Prophet on {len(df)} historical observations specifically for {index_name}.")
             training_df = df.copy()
             is_monthly_data = False

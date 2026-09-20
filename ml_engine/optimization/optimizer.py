@@ -634,13 +634,15 @@ class VesselCharterOptimizer:
                     f"Berth_Daily_Cap_Day_{t}",
                 )
 
-            # Constraint 3: Port Cargo Handling Throughput Limit
-            # Total cargo scheduled for discharge on day t cannot exceed handling equipment throughput
+            # Constraint 3: Port Cargo Handling Throughput Limit over rolling discharge window
+            # Prevents berth congestion while allowing full vessel parcels (e.g. Capesize 150k MT, Panamax 80k MT)
             for t in range(horizon_days):
+                end_t = min(t + 5, horizon_days)
+                window_days = end_t - t
                 prob += (
-                    pulp.lpSum([x_vars[(v, t)] * VESSEL_SPECS[v]["capacity_mt"] for v in feasible_vessels])
-                    <= handling_rate_tpd * 2.0,
-                    f"Port_Handling_Throughput_Day_{t}",
+                    pulp.lpSum([x_vars[(v, tau)] * VESSEL_SPECS[v]["capacity_mt"] for v in feasible_vessels for tau in range(t, end_t)])
+                    <= max(160000.0, handling_rate_tpd * window_days * 1.5),
+                    f"Port_Handling_Throughput_Window_{t}",
                 )
 
             # Solve problem silently
