@@ -294,14 +294,23 @@ class VesselCharterOptimizer:
             # Capesize STS transshipment. We prefer lighterage when it is:
             #   (a) strictly cheaper, OR
             #   (b) within a 15% cost overhead — operational advantages (fewer port calls,
-            #       larger stems, lower BCI rates) justify a small premium.
-            # Direct discharge is only forced when it is >15% cheaper than lighterage.
-            LIGHTERAGE_PREFERENCE_THRESHOLD = 0.15  # 15% tolerance
-            lighterage_cost_premium = (cost_b - cost_a) / cost_a if cost_a > 0 else float("inf")
-            prefer_lighterage = (
-                solution_b["status"] == "Optimal"
-                and lighterage_cost_premium <= LIGHTERAGE_PREFERENCE_THRESHOLD
-            )
+            #       larger stems, lower BCI rates) justify a small premium, OR
+            #   (c) direct discharge is physically infeasible (draft limit exceeded).
+            is_b_optimal = solution_b.get("status") == "Optimal"
+            is_a_optimal = solution_a is not None and solution_a.get("status") == "Optimal" and not math.isinf(cost_a)
+
+            if is_b_optimal and not is_a_optimal:
+                # Scenario A is physically infeasible; lighterage is the only viable option
+                prefer_lighterage = True
+                lighterage_cost_premium = 0.0
+            elif is_b_optimal and is_a_optimal:
+                LIGHTERAGE_PREFERENCE_THRESHOLD = 0.15  # 15% tolerance
+                lighterage_cost_premium = (cost_b - cost_a) / cost_a
+                # Prefer lighterage if cheaper OR within 15% operational preference threshold
+                prefer_lighterage = (cost_b <= cost_a) or (lighterage_cost_premium <= LIGHTERAGE_PREFERENCE_THRESHOLD)
+            else:
+                prefer_lighterage = False
+                lighterage_cost_premium = float("inf")
 
             if prefer_lighterage:
                 solution = solution_b
@@ -312,6 +321,8 @@ class VesselCharterOptimizer:
                 lighterage_vessel_count = math.ceil(required_cargo_mt / 50000)
                 solution["lighterage_vessel_type"] = "Supramax"
                 solution["lighterage_vessel_count"] = lighterage_vessel_count
+                solution["lighterage_strictly_cheaper"] = bool(is_b_optimal and is_a_optimal and cost_b < cost_a)
+                solution["lighterage_cost_premium"] = round(float(lighterage_cost_premium), 4) if not math.isinf(lighterage_cost_premium) else None
 
                 logger.info(
                     f"Selected Scenario B (MID_SEA_LIGHTERAGE): Cost=${cost_b:,.2f} vs Direct=${cost_a:,.2f} "
@@ -385,6 +396,11 @@ class VesselCharterOptimizer:
             rate_multiplier=combined_multiplier,
         )
 
+        if "Capesize" in benchmark_vessels and max_draft < 17.0:
+            vessels_needed = int(-(-required_cargo_mt // VESSEL_SPECS["Capesize"]["capacity_mt"]))
+            naive_lighterage_penalty = (vessels_needed * VESSEL_SPECS["Capesize"]["capacity_mt"] * 3.50) + (vessels_needed * DEMURRAGE_DAILY_RATE_USD)
+            naive_cost += naive_lighterage_penalty
+
         optimized_cost = solution["total_cost"]
         estimated_savings = max(0.0, naive_cost - optimized_cost)
 
@@ -410,6 +426,8 @@ class VesselCharterOptimizer:
             "lighterage_penalty_applied": round(float(lighterage_penalty_applied), 2),
             "lighterage_vessel_type": solution.get("lighterage_vessel_type"),
             "lighterage_vessel_count": solution.get("lighterage_vessel_count"),
+            "lighterage_strictly_cheaper": solution.get("lighterage_strictly_cheaper"),
+            "lighterage_cost_premium": solution.get("lighterage_cost_premium"),
         }
 
     def _solve_milp_pulp(

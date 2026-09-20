@@ -186,11 +186,16 @@ export default function FreightDSSApp() {
     let lighterageCount = 0;
     let lighterageType = "";
 
+    let lighterageStrictlyCheaper: boolean | undefined = undefined;
+
     if (maxDraft < 17.0 && allowsLighterage) {
+      const allowsDirect = dischargeSpec.allowsPanamax || (maxDraft >= 11.0);
       const directCap = dischargeSpec.allowsPanamax ? 80000 : 50000;
       const directBaseRate = dischargeSpec.allowsPanamax ? 19.35 : 22.41;
       const directQty = Math.max(1, Math.ceil(payload.required_cargo_mt / directCap));
-      const costA = directQty * (directCap * directBaseRate * multiplier + 32000 * multiplier);
+      const costA = allowsDirect
+        ? directQty * (directCap * directBaseRate * multiplier + 32000 * multiplier)
+        : Infinity;
 
       const capeCap = 150000;
       const capeBaseRate = 17.14;
@@ -202,16 +207,16 @@ export default function FreightDSSApp() {
         capeQty * (capeCap * capeBaseRate * multiplier + 32000 * multiplier) +
         lighterageSurcharge;
 
-      // Prefer lighterage when allow_lighterage=ON and cost premium <= 15%
-      const LIGHTERAGE_THRESHOLD = 0.15;
-      const lighteragePremium = costA > 0 ? (costB - costA) / costA : Infinity;
-      if (lighteragePremium <= LIGHTERAGE_THRESHOLD) {
+      const isCostAFinite = Number.isFinite(costA) && costA > 0;
+      const lighteragePremium = isCostAFinite ? (costB - costA) / costA : -1.0;
+      if (!isCostAFinite || costB <= costA || lighteragePremium <= 0.15) {
         vType = "Capesize";
         cap = capeCap;
         strategyUsed = "MID_SEA_LIGHTERAGE";
         lighteragePenaltyApplied = lighterageSurcharge;
-        lighterageCount = Math.ceil(capeCap / 50000);
+        lighterageCount = Math.ceil(payload.required_cargo_mt / 50000); // Dynamic calculation
         lighterageType = "Supramax";
+        lighterageStrictlyCheaper = isCostAFinite ? costB < costA : true;
       }
     }
 
@@ -248,7 +253,7 @@ export default function FreightDSSApp() {
     const discountPct =
       payload.required_cargo_mt >= 300000 ? 5.0 : payload.required_cargo_mt >= 150000 ? 2.0 : -2.0;
     const coaRate = Math.round(rate * 1.05 * (1.0 - discountPct / 100) * 100) / 100;
-    const coaTotalCost = coaRate * payload.required_cargo_mt;
+    const coaTotalCost = (coaRate * payload.required_cargo_mt) + (strategyUsed === "MID_SEA_LIGHTERAGE" ? lighteragePenaltyApplied : 0);
 
     const newResult: OptimizationResponse = {
       status: "Optimal",
@@ -267,6 +272,7 @@ export default function FreightDSSApp() {
       lighterage_penalty_applied: lighteragePenaltyApplied,
       lighterage_vessel_count: lighterageCount || undefined,
       lighterage_vessel_type: lighterageType || undefined,
+      lighterage_strictly_cheaper: lighterageStrictlyCheaper,
       procurement_recommendation: coaTotalCost < totalCost ? "LOCK_IN_COA" : "STAY_SPOT",
       market_trend: "CONTANGO",
       coa_discount_pct: discountPct,

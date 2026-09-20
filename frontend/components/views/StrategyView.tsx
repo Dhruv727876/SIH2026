@@ -285,7 +285,9 @@ export default function StrategyView({
               </h4>
               <p className="text-xs text-[#475569] leading-relaxed">
                 {optimizationResult.strategy_used === "MID_SEA_LIGHTERAGE"
-                  ? `${optimizationResult.target_port}'s ${draftLimit}m draft limit excludes direct Capesize berthing, but lighterage analysis proved Capesize via Sandheads STS is cheaper than multi-vessel direct shipment. Cargo transferred via ${optimizationResult.lighterage_vessel_count || 3}x ${optimizationResult.lighterage_vessel_type || "Supramax"}.`
+                  ? (optimizationResult.lighterage_strictly_cheaper ?? ((optimizationResult.estimated_savings_usd || 0) > 0))
+                    ? `${optimizationResult.target_port}'s ${draftLimit}m draft limit excludes direct Capesize berthing, but lighterage analysis proved Capesize via Sandheads STS is cheaper than multi-vessel direct shipment. Cargo transferred via ${optimizationResult.lighterage_vessel_count || 3}x ${optimizationResult.lighterage_vessel_type || "Supramax"}.`
+                    : `${optimizationResult.target_port}'s ${draftLimit}m draft limit excludes direct Capesize berthing. Lighterage selected for operational stem consolidation (within 15% cost tolerance) via ${optimizationResult.lighterage_vessel_count || 3}x ${optimizationResult.lighterage_vessel_type || "Supramax"} daughter vessels.`
                   : draftLimit >= 17.5
                   ? `${optimizationResult.target_port}'s ${draftLimit}m deepwater berth fully accommodates Capesize bulkers, maximizing ton-mile economics.`
                   : `${optimizationResult.target_port}'s ${draftLimit}m channel limit filtered out Capesize bulkers, selecting compliant ${primaryVessel} carriers.`}

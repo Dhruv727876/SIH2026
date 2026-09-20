@@ -542,7 +542,7 @@ export default function DashboardView({
                       Mid-Sea Lighterage Strategy Active (Sandheads Anchorage)
                     </div>
                     <p className="text-xs text-amber-800 mt-0.5">
-                      Destination draft constraint ({currentDischargeMeta.draftLimit}m) active. Cargo transported via Capesize and transshipped to {optimizationResult.lighterage_vessel_count || 3}x {optimizationResult.lighterage_vessel_type || "Supramax"} vessels for riverine berthing.
+                      Destination draft constraint ({currentDischargeMeta.draftLimit}m) active. Cargo transported via Capesize and transshipped to {optimizationResult.lighterage_vessel_count || 3}x {optimizationResult.lighterage_vessel_type || "Supramax"} vessels for riverine berthing. {(optimizationResult.lighterage_strictly_cheaper ?? ((optimizationResult.estimated_savings_usd || 0) > 0)) ? "MILP proves lighterage saves overall freight cost." : "Lighterage selected for operational stem consolidation (within 15% cost tolerance)."}
                     </p>
                   </div>
                 </div>

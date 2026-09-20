@@ -83,6 +83,14 @@ class OptimizationResponse(BaseModel):
         default=None,
         description="Number of secondary vessels required to move the cargo from anchorage to port",
     )
+    lighterage_strictly_cheaper: Optional[bool] = Field(
+        default=None,
+        description="True if Scenario B lighterage was strictly cheaper than Scenario A direct discharge",
+    )
+    lighterage_cost_premium: Optional[float] = Field(
+        default=None,
+        description="Cost premium fraction of lighterage over direct discharge (e.g. 0.05 for +5%)",
+    )
     coa_rate_usd_per_mt: Optional[float] = Field(
         default=None,
         description="Forecasted 6-month forward COA rate per MT",

@@ -66,6 +66,8 @@ export interface OptimizationResponse {
   lighterage_penalty_applied?: number;
   lighterage_vessel_type?: string;
   lighterage_vessel_count?: number;
+  lighterage_strictly_cheaper?: boolean;
+  lighterage_cost_premium?: number;
   coa_rate_usd_per_mt?: number;
   coa_total_cost_usd?: number;
   coa_savings_usd?: number;

@@ -187,7 +187,10 @@ export default function CharterRecommendation({
                     Lighterage Strategy Engaged: {capesizeCount}x Capesize at Sandheads Anchorage
                   </div>
                   <p className="text-xs text-amber-900 mt-0.5 leading-relaxed">
-                    Cargo lightered into {lighterageCount}x {lighterageType} vessels for shallow riverine discharge at {targetPort} ({maxDraft}m draft). MILP proves lighterage saves overall freight cost.
+                    Cargo lightered into {lighterageCount}x {lighterageType} vessels for shallow riverine discharge at {targetPort} ({maxDraft}m draft).{" "}
+                    {(result.lighterage_strictly_cheaper ?? ((result.estimated_savings_usd || 0) > 0))
+                      ? "MILP proves lighterage saves overall freight cost."
+                      : "Lighterage selected for operational stem consolidation (within 15% cost tolerance)."}
                   </p>
                 </div>
               </div>

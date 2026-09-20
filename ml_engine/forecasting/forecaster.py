@@ -490,13 +490,15 @@ class FreightForecaster:
         vessel_type: str = "Capesize",
         required_cargo_mt: float = 150000.0,
         horizon_days: int = 180,
+        rate_multiplier: float = 1.0,
         db: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Calculates the forecasted 6-Month forward Contract of Affreightment (COA) rate ($/MT)
         using the Prophet long-term model trajectory for 180 days (T+1 to T+180 / 6 Months).
         Detects forward market trend ('CONTANGO', 'BACKWARDATION', or 'STABLE') by comparing
-        Short-Term (Days 1-30) vs Long-Term (Days 150-180), and applies real-world Volume-Tiered pricing:
+        Short-Term (Days 1-30) vs Long-Term (Days 150-180), applies route and disruption rate multipliers,
+        and applies real-world Volume-Tiered pricing:
           - >= 300,000 MT: 5% volume discount (0.95x)
           - >= 150,000 MT: 2% volume discount (0.98x)
           - < 150,000 MT:  2% small parcel risk premium (1.02x)
@@ -516,7 +518,8 @@ class FreightForecaster:
             df = self.fetch_historical_data(index_name, db=db)
             forecast_180 = self.train_and_predict_long_term(df, horizon=horizon_days)
             if not forecast_180:
-                return {"rate": spec["fallback"], "trend": "STABLE", "discount_pct": 0.0}
+                fallback_rate = round(float(spec["fallback"] * rate_multiplier), 2)
+                return {"rate": fallback_rate, "trend": "STABLE", "discount_pct": 0.0}
 
             # 1. Short-Term Average (Days 1 to 30)
             short_term_slice = forecast_180[:30] if len(forecast_180) >= 30 else forecast_180
@@ -534,9 +537,9 @@ class FreightForecaster:
             else:
                 market_trend = "STABLE"
 
-            # 4. Baseline 180-Day Forward Rate
+            # 4. Baseline 180-Day Forward Rate (scaled by route distance and crisis multipliers)
             avg_index_points = sum(float(item["predicted_value"]) for item in forecast_180) / len(forecast_180)
-            base_rate_usd_mt = avg_index_points * scale
+            base_rate_usd_mt = avg_index_points * scale * rate_multiplier
 
             # 5. Volume-Tiered COA Pricing
             cargo_qty = float(required_cargo_mt or 150000.0)
@@ -555,7 +558,7 @@ class FreightForecaster:
             logger.info(
                 f"Computed 6-Month COA for {normalized_type} ({index_name}): "
                 f"ShortTerm={short_term_avg:.1f}, LongTerm={long_term_avg:.1f} -> Trend={market_trend} | "
-                f"Base Rate=${base_rate_usd_mt:.2f}/MT, Cargo={cargo_qty:,.0f} MT, Disc={discount_applied:+.1f}% -> Final Rate=${final_rate}/MT"
+                f"Base Rate=${base_rate_usd_mt:.2f}/MT (Mult={rate_multiplier:.2f}x), Cargo={cargo_qty:,.0f} MT, Disc={discount_applied:+.1f}% -> Final Rate=${final_rate}/MT"
             )
 
             return {
@@ -565,7 +568,8 @@ class FreightForecaster:
             }
         except Exception as e:
             logger.warning(f"Error calculating 6-month COA rate for {vessel_type} ({e}). Using fallback rate.")
-            return {"rate": spec["fallback"], "trend": "STABLE", "discount_pct": 0.0}
+            fallback_rate = round(float(spec["fallback"] * rate_multiplier), 2)
+            return {"rate": fallback_rate, "trend": "STABLE", "discount_pct": 0.0}
 
 
 if __name__ == "__main__":

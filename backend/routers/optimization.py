@@ -13,7 +13,7 @@ ml_engine_dir = os.path.join(root_dir, "ml_engine")
 if ml_engine_dir not in sys.path:
     sys.path.insert(0, ml_engine_dir)
 
-from optimization.optimizer import VesselCharterOptimizer
+from optimization.optimizer import VesselCharterOptimizer, get_route_info
 from forecasting.forecaster import FreightForecaster
 from schemas.optimization import OptimizationRequest, OptimizationResponse, VesselScheduleItem
 from database import get_db
@@ -140,9 +140,13 @@ def run_vessel_charter_optimization(
                 cargo_needed = float(result.get("required_cargo_mt") or payload.required_cargo_mt)
                 spot_total_cost = float(result["total_estimated_cost_usd"])
 
+                route_info = get_route_info(payload.origin_port)
+                combined_multiplier = route_info["multiplier"] * (payload.disruption_multiplier or 1.0)
+
                 coa_info = forecaster.get_medium_term_coa_rate(
                     vessel_type=primary_vessel,
                     required_cargo_mt=cargo_needed,
+                    rate_multiplier=combined_multiplier,
                     db=db,
                 )
                 coa_rate_usd_per_mt = coa_info.get("rate")
@@ -150,6 +154,9 @@ def run_vessel_charter_optimization(
                 coa_discount_pct = coa_info.get("discount_pct", 0.0)
 
                 coa_total_cost_usd = round(cargo_needed * coa_rate_usd_per_mt, 2)
+                if result.get("strategy_used") == "MID_SEA_LIGHTERAGE":
+                    coa_total_cost_usd += float(result.get("lighterage_penalty_applied", 0.0))
+                    coa_total_cost_usd = round(coa_total_cost_usd, 2)
 
                 # Enhanced Recommendation Logic:
                 # If COA is strictly cheaper -> LOCK_IN_COA
@@ -190,6 +197,8 @@ def run_vessel_charter_optimization(
             lighterage_penalty_applied=float(result.get("lighterage_penalty_applied", 0.0)),
             lighterage_vessel_type=result.get("lighterage_vessel_type"),
             lighterage_vessel_count=result.get("lighterage_vessel_count"),
+            lighterage_strictly_cheaper=result.get("lighterage_strictly_cheaper"),
+            lighterage_cost_premium=result.get("lighterage_cost_premium"),
             coa_rate_usd_per_mt=coa_rate_usd_per_mt,
             coa_total_cost_usd=coa_total_cost_usd,
             coa_savings_usd=coa_savings_usd,
