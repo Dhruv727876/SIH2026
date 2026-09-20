@@ -179,23 +179,30 @@ export default function DashboardView({
               <label className="text-xs font-bold text-[#001f3f] flex items-center justify-between">
                 <span>Required Cargo Volume (Tonnage)</span>
                 <span className="text-[11px] text-[#64748b] font-normal">
-                  Standard SAIL / RINL Parcels
+                  Standard SAIL / RINL Parcels (10k - 2M MT)
                 </span>
               </label>
               <div className="flex items-center rounded border border-[#cbd5e1] bg-white focus-within:border-[#12355b] focus-within:ring-1 focus-within:ring-[#12355b] overflow-hidden">
                 <input
                   className="w-full h-9 px-3 text-sm font-mono text-[#0d1c2e] bg-transparent focus:outline-none"
                   type="number"
-                  min="50000"
+                  min="10000"
                   max="2000000"
-                  step="10000"
-                  value={request.required_cargo_mt}
-                  onChange={(e) =>
+                  step="5000"
+                  placeholder="e.g. 300000"
+                  value={request.required_cargo_mt === 0 || Number.isNaN(request.required_cargo_mt) ? "" : request.required_cargo_mt}
+                  onChange={(e) => {
+                    const raw = e.target.value;
                     setRequest((prev) => ({
                       ...prev,
-                      required_cargo_mt: parseFloat(e.target.value) || 300000,
-                    }))
-                  }
+                      required_cargo_mt: raw === "" ? (0 as unknown as number) : Number(raw),
+                    }));
+                  }}
+                  onBlur={() => {
+                    if (!request.required_cargo_mt || request.required_cargo_mt < 10000) {
+                      setRequest((prev) => ({ ...prev, required_cargo_mt: 35000 }));
+                    }
+                  }}
                 />
                 <span className="h-9 px-4 bg-[#f1f5f9] text-[#475569] text-xs font-bold flex items-center justify-center border-l border-[#cbd5e1]">
                   MT
@@ -286,14 +293,23 @@ export default function DashboardView({
                     className="w-full h-9 px-3 text-sm font-mono text-[#0d1c2e] bg-transparent focus:outline-none"
                     type="number"
                     min="7"
-                    max="60"
-                    value={request.planning_horizon_days}
-                    onChange={(e) =>
+                    max="180"
+                    placeholder="e.g. 30"
+                    value={request.planning_horizon_days === 0 || Number.isNaN(request.planning_horizon_days) ? "" : request.planning_horizon_days}
+                    onChange={(e) => {
+                      const raw = e.target.value;
                       setRequest((prev) => ({
                         ...prev,
-                        planning_horizon_days: parseInt(e.target.value) || 30,
-                      }))
-                    }
+                        planning_horizon_days: raw === "" ? (0 as unknown as number) : Number(raw),
+                      }));
+                    }}
+                    onBlur={() => {
+                      if (!request.planning_horizon_days || request.planning_horizon_days < 7) {
+                        setRequest((prev) => ({ ...prev, planning_horizon_days: 7 }));
+                      } else if (request.planning_horizon_days > 180) {
+                        setRequest((prev) => ({ ...prev, planning_horizon_days: 180 }));
+                      }
+                    }}
                   />
                   <span className="h-9 px-4 bg-[#f1f5f9] text-[#475569] text-xs font-bold flex items-center justify-center border-l border-[#cbd5e1]">
                     Days
@@ -413,7 +429,7 @@ export default function DashboardView({
                       Cargo Handling Rate
                     </div>
                     <div className="text-sm font-bold text-[#001f3f] mt-0.5">
-                      {currentDischargeMeta.handlingRateTpd.toLocaleString()} TPD
+                      {currentDischargeMeta.handlingRate.toLocaleString()} TPD
                     </div>
                     <div className="text-[10px] text-[#64748b] mt-0.5">
                       Discharge Turnaround Throughput
@@ -425,7 +441,7 @@ export default function DashboardView({
                       Demurrage Benchmark
                     </div>
                     <div className="text-sm font-bold text-[#001f3f] mt-0.5">
-                      ${currentDischargeMeta.demurrageUsdPerDay.toLocaleString()} / day
+                      $18,500 / day
                     </div>
                     <div className="text-[10px] text-[#64748b] mt-0.5">
                       Baltic C5/P5 Average

@@ -137,13 +137,23 @@ export default function WhatIfView({
                 <input
                   className="w-full h-9 px-3 text-sm font-mono text-[#0d1c2e] bg-transparent focus:outline-none"
                   type="number"
-                  value={request.required_cargo_mt}
-                  onChange={(e) =>
+                  min="10000"
+                  max="2000000"
+                  step="5000"
+                  placeholder="e.g. 300000"
+                  value={request.required_cargo_mt === 0 || Number.isNaN(request.required_cargo_mt) ? "" : request.required_cargo_mt}
+                  onChange={(e) => {
+                    const raw = e.target.value;
                     setRequest((prev) => ({
                       ...prev,
-                      required_cargo_mt: parseFloat(e.target.value) || 300000,
-                    }))
-                  }
+                      required_cargo_mt: raw === "" ? (0 as unknown as number) : Number(raw),
+                    }));
+                  }}
+                  onBlur={() => {
+                    if (!request.required_cargo_mt || request.required_cargo_mt < 10000) {
+                      setRequest((prev) => ({ ...prev, required_cargo_mt: 35000 }));
+                    }
+                  }}
                 />
                 <span className="h-9 px-3 bg-[#f1f5f9] text-[#475569] text-xs font-bold flex items-center justify-center border-l border-[#cbd5e1]">
                   MT

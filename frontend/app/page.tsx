@@ -150,10 +150,10 @@ export default function FreightDSSApp() {
     const startTime = performance.now();
 
     const payload: OptimizationRequest = {
-      required_cargo_mt: activeReq.required_cargo_mt,
+      required_cargo_mt: Number(activeReq.required_cargo_mt) || 300000,
       target_port: activeReq.target_port,
       origin_port: activeReq.origin_port,
-      planning_horizon_days: activeReq.planning_horizon_days,
+      planning_horizon_days: Number(activeReq.planning_horizon_days) || 30,
       allow_lighterage: activeReq.allow_lighterage ?? true,
       force_refresh: true,
     };
@@ -186,10 +186,10 @@ export default function FreightDSSApp() {
     const startTime = performance.now();
 
     const payload: OptimizationRequest = {
-      required_cargo_mt: request.required_cargo_mt,
+      required_cargo_mt: Number(request.required_cargo_mt) || 300000,
       target_port: request.target_port,
       origin_port: request.origin_port,
-      planning_horizon_days: request.planning_horizon_days,
+      planning_horizon_days: Number(request.planning_horizon_days) || 30,
       allow_lighterage: request.allow_lighterage ?? true,
       disruption_multiplier: multiplier,
       disruption_name: name,
