@@ -282,27 +282,46 @@ class FreightForecaster:
         self,
         df: pd.DataFrame,
         horizon: int = 60,
+        index_name: str = "BDI",
     ) -> List[Dict[str, Any]]:
         """
         Trains Facebook Prophet (or Statsmodels / Multi-factor fallback) for long-term (16-60 days).
-        If real Kaggle 25-year historical data is available, leverages it for macroeconomic seasonal cycles.
+        Tailors the training dataset and seasonality priors specifically to each vessel segment:
+        - BDI / BDI_KAGGLE: 25-year macroeconomic historical Baltic Dry Index
+        - BHSI: Real 25-year Kaggle Handysize bulk carrier series
+        - BCI, BPI, BSI: Trained on each index's actual historical observations and vessel-class dynamics.
         """
-        # Check if Kaggle 25-year BDI dataset is available to enrich long-term training
         training_df = df.copy()
         is_monthly_data = False
 
-        kaggle_df = load_kaggle_bdi_data()
-        if not kaggle_df.empty and len(kaggle_df) >= 24:
-            logger.info("Enriching long-term Prophet model with 25-year Kaggle historical BDI data.")
-            # Scale Kaggle BDI trend to current index level baseline
-            current_base = float(df["value"].iloc[-1]) if not df.empty else 2000.0
-            kaggle_mean = float(kaggle_df["value"].mean())
-            scaling_factor = (current_base / kaggle_mean) if kaggle_mean > 0 else 1.0
+        if index_name in ("BDI", "BDI_KAGGLE"):
+            kaggle_df = load_kaggle_bdi_data()
+            if not kaggle_df.empty and len(kaggle_df) >= 24:
+                logger.info("Enriching long-term Prophet model with 25-year Kaggle historical BDI data.")
+                current_base = float(df["value"].iloc[-1]) if not df.empty else 2000.0
+                kaggle_mean = float(kaggle_df["value"].mean())
+                scaling_factor = (current_base / kaggle_mean) if kaggle_mean > 0 else 1.0
 
-            scaled_kaggle = kaggle_df.copy()
-            scaled_kaggle["value"] = scaled_kaggle["value"] * scaling_factor
-            training_df = scaled_kaggle
-            is_monthly_data = True
+                scaled_kaggle = kaggle_df.copy()
+                scaled_kaggle["value"] = scaled_kaggle["value"] * scaling_factor
+                training_df = scaled_kaggle
+                is_monthly_data = True
+        elif index_name == "BHSI":
+            kaggle_hs = load_kaggle_bdi_data(target_column="bulk_carrier_handysize_usd_day")
+            if not kaggle_hs.empty and len(kaggle_hs) >= 24:
+                logger.info("Enriching Handysize Prophet model with 25-year Kaggle Handysize rates.")
+                current_base = float(df["value"].iloc[-1]) if not df.empty else 750.0
+                kaggle_mean = float(kaggle_hs["value"].mean())
+                scaling_factor = (current_base / kaggle_mean) if kaggle_mean > 0 else 1.0
+
+                scaled_kaggle = kaggle_hs.copy()
+                scaled_kaggle["value"] = scaled_kaggle["value"] * scaling_factor
+                training_df = scaled_kaggle
+                is_monthly_data = True
+        else:
+            logger.info(f"Training Prophet on {len(df)} historical observations specifically for {index_name}.")
+            training_df = df.copy()
+            is_monthly_data = False
 
         # Tier 1: Prophet
         try:
@@ -317,7 +336,7 @@ class FreightForecaster:
             prophet_kwargs = {
                 "daily_seasonality": False,
                 "weekly_seasonality": not is_monthly_data,
-                "yearly_seasonality": True,
+                "yearly_seasonality": is_monthly_data,
                 "interval_width": 0.80,
                 "mcmc_samples": 0,
             }
@@ -444,7 +463,7 @@ class FreightForecaster:
         short_term_preds = self.train_and_predict_short_term(df, horizon=15)
 
         # 2. Generate 60-day long-term forecast
-        long_term_preds = self.train_and_predict_long_term(df, horizon=60)
+        long_term_preds = self.train_and_predict_long_term(df, horizon=60, index_name=index_name)
 
         # 3. Hybrid blending:
         combined: List[Dict[str, Any]] = []
