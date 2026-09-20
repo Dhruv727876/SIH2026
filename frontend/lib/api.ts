@@ -55,7 +55,13 @@ export interface OptimizationResponse {
   origin_port?: string;
   route?: string;
   port_max_draft_m?: number;
+  port_max_loa_m?: number;
+  port_max_beam_m?: number;
+  port_handling_rate_tpd?: number;
   port_waiting_hours?: number;
+  port_turnaround_days?: number;
+  deadheading_cost_usd?: number;
+  idle_time_penalty_usd?: number;
   required_cargo_mt?: number;
   total_cargo_allocated_mt?: number;
   total_estimated_cost_usd: number;
@@ -84,6 +90,9 @@ export interface PortDataResponse {
   id: number;
   port_name: string;
   max_draft_meters: number;
+  max_loa_meters?: number;
+  max_beam_meters?: number;
+  cargo_handling_rate_tpd?: number;
   current_waiting_time_hours: number;
   updated_at: string;
 }

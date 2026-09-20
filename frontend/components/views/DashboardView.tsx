@@ -28,46 +28,93 @@ const USD_TO_INR_RATE = 83.51;
 
 const DISCHARGE_PORT_METADATA: Record<
   string,
-  { draftLimit: number; allowsCape: boolean; allowsPanamax: boolean; description: string }
+  {
+    draftLimit: number;
+    maxLoa: number;
+    maxBeam: number;
+    handlingRate: number;
+    allowsCape: boolean;
+    allowsPanamax: boolean;
+    description: string;
+  }
 > = {
   Paradip: {
     draftLimit: 14.5,
+    maxLoa: 260.0,
+    maxBeam: 43.0,
+    handlingRate: 45000,
     allowsCape: false,
     allowsPanamax: true,
     description: "Major Coking Coal Terminal (Odisha). 14.50m channel ceiling strictly disqualifies direct Capesize bulkers.",
   },
   Visakhapatnam: {
     draftLimit: 16.5,
+    maxLoa: 280.0,
+    maxBeam: 45.0,
+    handlingRate: 35000,
     allowsCape: false,
     allowsPanamax: true,
     description: "RINL dedicated Outer Harbour (Andhra Pradesh). 16.50m draft permits deep-laden Panamax vessels.",
   },
-  Haldia: {
-    draftLimit: 12.0,
-    allowsCape: false,
-    allowsPanamax: false,
-    description: "Shallow Riverine Lock-Gate Port (West Bengal). Strictly limited to geared Supramax carriers (50k MT).",
-  },
-  Dhamra: {
-    draftLimit: 18.0,
-    allowsCape: true,
-    allowsPanamax: true,
-    description: "Deepwater Port (Odisha). 18.00m draft fully accommodates Capesize and Panamax carriers.",
-  },
   Gangavaram: {
     draftLimit: 20.0,
+    maxLoa: 320.0,
+    maxBeam: 50.0,
+    handlingRate: 40000,
     allowsCape: true,
     allowsPanamax: true,
     description: "Ultra-Deepwater Bulk Port (Andhra Pradesh). Capable of handling Newcastlemax bulkers with zero draft restrictions.",
   },
+  Gopalpur: {
+    draftLimit: 13.5,
+    maxLoa: 230.0,
+    maxBeam: 33.0,
+    handlingRate: 20000,
+    allowsCape: false,
+    allowsPanamax: false,
+    description: "All-weather deep port (Odisha). Supramax/Handymax bulk terminal serving regional steel mills.",
+  },
+  Dhamra: {
+    draftLimit: 18.0,
+    maxLoa: 315.0,
+    maxBeam: 48.0,
+    handlingRate: 45000,
+    allowsCape: true,
+    allowsPanamax: true,
+    description: "Deepwater Port (Odisha). 18.00m draft fully accommodates Capesize and Panamax carriers.",
+  },
+  "Sagar- Sandheads": {
+    draftLimit: 18.5,
+    maxLoa: 330.0,
+    maxBeam: 55.0,
+    handlingRate: 25000,
+    allowsCape: true,
+    allowsPanamax: true,
+    description: "Deepwater Anchorage STS Lighterage Hub for Haldia & Kolkata river ports.",
+  },
+  Haldia: {
+    draftLimit: 12.0,
+    maxLoa: 220.0,
+    maxBeam: 32.3,
+    handlingRate: 15000,
+    allowsCape: false,
+    allowsPanamax: false,
+    description: "Shallow Riverine Lock-Gate Port (West Bengal). Strictly limited to geared Supramax carriers (50k MT).",
+  },
   Mormugao: {
     draftLimit: 14.1,
+    maxLoa: 240.0,
+    maxBeam: 38.0,
+    handlingRate: 25000,
     allowsCape: false,
     allowsPanamax: true,
     description: "Mooring Berth (Goa). Accommodates Panamax bulkers.",
   },
   Jaigad: {
     draftLimit: 18.5,
+    maxLoa: 310.0,
+    maxBeam: 48.0,
+    handlingRate: 35000,
     allowsCape: true,
     allowsPanamax: true,
     description: "Deepwater Berth (Maharashtra). Accommodates Capesize bulkers.",
@@ -170,25 +217,28 @@ export default function DashboardView({
                   }
                 >
                   <option value="Australia (Newcastle)">
-                    Australia (Newcastle) — Primary Coking Coal
+                    Australia (Newcastle) — Primary Coking Coal (~5,200 nm)
                   </option>
                   <option value="Australia (Hay Point / Dalrymple)">
                     Australia (Hay Point / Dalrymple)
                   </option>
-                  <option value="Australia (Gladstone)">
-                    Australia (Gladstone)
-                  </option>
                   <option value="Indonesia (Samarinda)">
-                    Indonesia (Samarinda) — Low-Haul
+                    Indonesia (Samarinda) — Low-Haul (~2,600 nm)
                   </option>
-                  <option value="South Africa (Richards Bay)">
-                    South Africa (Richards Bay) — Medium-Haul
+                  <option value="Mozambique (Maputo / Beira)">
+                    Mozambique (Maputo / Beira) — East Africa Corridor (~4,100 nm)
+                  </option>
+                  <option value="Russia (Vostochny / Taman)">
+                    Russia (Vostochny / Taman) — Northern Trade Lane (~5,800 nm)
                   </option>
                   <option value="USA (Hampton Roads)">
-                    USA (Hampton Roads) — High Grade Met Coal
+                    USA (Hampton Roads / Baltimore) — Atlantic Long-Haul (~9,800 nm)
+                  </option>
+                  <option value="South Africa (Richards Bay)">
+                    South Africa (Richards Bay) — Medium-Haul (~4,800 nm)
                   </option>
                   <option value="Brazil (Tubarao)">
-                    Brazil (Tubarao) — Deepwater Bulk Hub
+                    Brazil (Tubarao) — Deepwater Bulk Hub (~8,900 nm)
                   </option>
                 </select>
               </div>
@@ -197,7 +247,7 @@ export default function DashboardView({
                 <label className="text-xs font-bold text-[#001f3f] flex items-center justify-between">
                   <span>Destination Port (India)</span>
                   <span className="text-[10px] text-[#e65100] font-semibold bg-[#fff3e0] px-2 py-0.5 rounded border border-[#ffe0b2]">
-                    {currentDischargeMeta.draftLimit}m Draft Limit
+                    {currentDischargeMeta.draftLimit}m Draft | {currentDischargeMeta.maxLoa}m LOA
                   </span>
                 </label>
                 <select
@@ -207,11 +257,13 @@ export default function DashboardView({
                     setRequest((prev) => ({ ...prev, target_port: e.target.value }))
                   }
                 >
-                  <option value="Paradip">Paradip (PPT - Berth CBX/CQ, 14.5m Draft)</option>
-                  <option value="Visakhapatnam">Visakhapatnam (VPT - Outer Harbour, 16.5m Draft)</option>
-                  <option value="Haldia">Haldia (HDC - Lock Gate Constrained, 12.0m Draft)</option>
-                  <option value="Dhamra">Dhamra (DPCL - Capesize Ready, 18.0m Draft)</option>
-                  <option value="Gangavaram">Gangavaram (GPL - Newcastlemax Ready, 20.0m Draft)</option>
+                  <option value="Paradip">Paradip (PPT - Berth CBX/CQ, 14.5m Draft, 260m LOA)</option>
+                  <option value="Visakhapatnam">Visakhapatnam (VPT - Outer Harbour, 16.5m Draft, 280m LOA)</option>
+                  <option value="Gangavaram">Gangavaram (GPL - Newcastlemax Ready, 20.0m Draft, 320m LOA)</option>
+                  <option value="Gopalpur">Gopalpur (All-Weather Port, 13.5m Draft, 230m LOA, 20k TPD)</option>
+                  <option value="Dhamra">Dhamra (DPCL - Capesize Ready, 18.0m Draft, 315m LOA)</option>
+                  <option value="Sagar- Sandheads">Sagar- Sandheads (Deepwater Anchorage STS Lighterage, 18.5m Draft)</option>
+                  <option value="Haldia">Haldia (HDC - Riverine Lock Gate, 12.0m Draft, 220m LOA)</option>
                   <option value="Mormugao">Mormugao (MPT - Mooring Berth, 14.1m Draft)</option>
                   <option value="Jaigad">Jaigad (JSP - Deepwater Berth, 18.5m Draft)</option>
                 </select>
@@ -331,40 +383,52 @@ export default function DashboardView({
               </button>
 
               {constraintsExpanded && (
-                <div className="p-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-[#e2e8f0] bg-white">
+                <div className="p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 border-t border-[#e2e8f0] bg-white">
                   <div className="p-2.5 bg-[#eff4ff] rounded border border-[#bfd5fe]">
                     <div className="text-[10px] uppercase font-bold text-[#12355b]">
                       Max Nav Draft Limit
                     </div>
                     <div className="text-sm font-bold text-[#001f3f] mt-0.5">
-                      {currentDischargeMeta.draftLimit.toFixed(2)} Metres
+                      {currentDischargeMeta.draftLimit.toFixed(1)} Metres
                     </div>
                     <div className="text-[10px] text-[#2563eb] mt-0.5">
-                      Dynamic: Enforced for {request.target_port}
+                      Berth: {request.target_port}
                     </div>
                   </div>
 
                   <div className="p-2.5 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
                     <div className="text-[10px] uppercase font-bold text-[#64748b]">
-                      Demurrage Tolerance
+                      Max Dimensions (LOA / Beam)
                     </div>
                     <div className="text-sm font-bold text-[#001f3f] mt-0.5">
-                      $18,500 / day
+                      {currentDischargeMeta.maxLoa}m / {currentDischargeMeta.maxBeam}m
                     </div>
                     <div className="text-[10px] text-[#64748b] mt-0.5">
-                      Baltic C5 Cap Benchmark
+                      Physical Berthing Ceiling
                     </div>
                   </div>
 
                   <div className="p-2.5 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
                     <div className="text-[10px] uppercase font-bold text-[#64748b]">
-                      Vessel Age Ceiling
+                      Cargo Handling Rate
                     </div>
                     <div className="text-sm font-bold text-[#001f3f] mt-0.5">
-                      &le; 15 Years
+                      {currentDischargeMeta.handlingRateTpd.toLocaleString()} TPD
                     </div>
                     <div className="text-[10px] text-[#64748b] mt-0.5">
-                      DG Shipping Statutory Rule
+                      Discharge Turnaround Throughput
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-[#f8f9ff] rounded border border-[#e2e8f0]">
+                    <div className="text-[10px] uppercase font-bold text-[#64748b]">
+                      Demurrage Benchmark
+                    </div>
+                    <div className="text-sm font-bold text-[#001f3f] mt-0.5">
+                      ${currentDischargeMeta.demurrageUsdPerDay.toLocaleString()} / day
+                    </div>
+                    <div className="text-[10px] text-[#64748b] mt-0.5">
+                      Baltic C5/P5 Average
                     </div>
                   </div>
                 </div>

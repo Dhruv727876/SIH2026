@@ -18,6 +18,7 @@ INDEX_SPECS = {
     "BCI": {"base": 2400.0, "volatility": 0.035, "currency": "USD", "unit": "Points"},
     "BPI": {"base": 1650.0, "volatility": 0.025, "currency": "USD", "unit": "Points"},
     "BSI": {"base": 1300.0, "volatility": 0.020, "currency": "USD", "unit": "Points"},
+    "BHSI": {"base": 750.0, "volatility": 0.020, "currency": "USD", "unit": "Points"},
     "BRENT_CRUDE": {"base": 82.5, "volatility": 0.018, "currency": "USD", "unit": "$/bbl"},
     "BUNKER_SIN": {"base": 620.0, "volatility": 0.015, "currency": "USD", "unit": "$/MT"},
     "USD_INR": {"base": 83.4, "volatility": 0.003, "currency": "INR", "unit": "INR/USD"},

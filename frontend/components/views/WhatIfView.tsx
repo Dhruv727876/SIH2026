@@ -162,11 +162,13 @@ export default function WhatIfView({
                   setRequest((prev) => ({ ...prev, origin_port: e.target.value }))
                 }
               >
+                <option value="Australia (Hay Point / Dalrymple)">Australia (Hay Point / Dalrymple)</option>
                 <option value="Australia (Newcastle)">Australia (Newcastle)</option>
-                <option value="Australia (Hay Point / Dalrymple)">Australia (Hay Point)</option>
+                <option value="Indonesia (Samarinda / Taboneo)">Indonesia (Samarinda / Taboneo)</option>
+                <option value="Mozambique (Maputo / Beira)">Mozambique (Maputo / Beira)</option>
+                <option value="Russia (Taman / Vostochny)">Russia (Taman / Vostochny)</option>
+                <option value="USA (Hampton Roads / Baltimore)">USA (Hampton Roads / Baltimore)</option>
                 <option value="South Africa (Richards Bay)">South Africa (Richards Bay)</option>
-                <option value="Indonesia (Samarinda)">Indonesia (Samarinda)</option>
-                <option value="USA (Hampton Roads)">USA (Hampton Roads)</option>
                 <option value="Brazil (Tubarao)">Brazil (Tubarao)</option>
               </select>
             </div>
@@ -182,11 +184,13 @@ export default function WhatIfView({
                   setRequest((prev) => ({ ...prev, target_port: e.target.value }))
                 }
               >
-                <option value="Paradip">Paradip (14.5m Draft)</option>
-                <option value="Visakhapatnam">Visakhapatnam (16.5m Draft)</option>
-                <option value="Haldia">Haldia (12.0m Draft)</option>
-                <option value="Dhamra">Dhamra (18.0m Draft)</option>
-                <option value="Gangavaram">Gangavaram (20.0m Draft)</option>
+                <option value="Paradip">Paradip (14.5m Draft / 260m LOA)</option>
+                <option value="Visakhapatnam">Visakhapatnam (16.5m Draft / 300m LOA)</option>
+                <option value="Gangavaram">Gangavaram (20.0m Draft / 320m LOA)</option>
+                <option value="Gopalpur">Gopalpur (14.0m Draft / 230m LOA)</option>
+                <option value="Dhamra">Dhamra (18.0m Draft / 315m LOA)</option>
+                <option value="Sagar- Sandheads">Sagar- Sandheads (18.5m STS Transshipment)</option>
+                <option value="Haldia">Haldia (12.0m Draft / 190m LOA)</option>
               </select>
             </div>
           </div>

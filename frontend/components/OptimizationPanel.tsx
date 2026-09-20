@@ -44,6 +44,27 @@ const ORIGIN_PORTS = [
     desc: "Low-Distance Thermal & Semi-Soft Coal Corridor (~2,600 nm)",
   },
   {
+    value: "Mozambique",
+    name: "Mozambique (Maputo / Beira)",
+    country: "MOZ",
+    multiplier: "0.95x East Africa Corridor",
+    desc: "Emerging High-Grade Coking Coal & Anthracite Hub (~4,100 nm)",
+  },
+  {
+    value: "Russia",
+    name: "Russia (Vostochny / Taman)",
+    country: "RUS",
+    multiplier: "1.12x Northern Trade Lane",
+    desc: "Far East & Black Sea Metallurgical Coal Terminals (~5,800 nm)",
+  },
+  {
+    value: "USA",
+    name: "USA (Hampton Roads / Baltimore)",
+    country: "USA",
+    multiplier: "1.45x Atlantic Long-Haul",
+    desc: "US East Coast Premium Low-Vol Coking Coal Terminal (~9,800 nm)",
+  },
+  {
     value: "South Africa",
     name: "South Africa (Richards Bay)",
     country: "ZAF",
@@ -60,11 +81,13 @@ const ORIGIN_PORTS = [
 ];
 
 const DISCHARGE_PORTS = [
-  { name: "Paradip", draft: "14.5m", type: "Major Ore & Coking Coal Terminal (Odisha)" },
-  { name: "Visakhapatnam", draft: "16.5m", type: "RINL Dedicated Outer Harbour (Andhra Pradesh)" },
-  { name: "Haldia", draft: "12.0m", type: "Shallow Riverine Channel (SAIL Durgapur feeder)" },
-  { name: "Dhamra", draft: "18.0m", type: "Deepwater Capesize Berth (Odisha)" },
-  { name: "Gangavaram", draft: "20.0m", type: "Ultra-Deepwater Bulk Port (Andhra Pradesh)" },
+  { name: "Paradip", draft: "14.5m", type: "Major Ore & Coking Coal Terminal (Odisha) | LOA: 260m" },
+  { name: "Visakhapatnam", draft: "16.5m", type: "RINL Dedicated Outer Harbour (Andhra Pradesh) | LOA: 280m" },
+  { name: "Gangavaram", draft: "20.0m", type: "Ultra-Deepwater Bulk Port (Andhra Pradesh) | LOA: 320m" },
+  { name: "Gopalpur", draft: "13.5m", type: "All-Weather Bulk Port (Odisha) | LOA: 230m | 20k TPD" },
+  { name: "Dhamra", draft: "18.0m", type: "Deepwater Capesize Berth (Odisha) | LOA: 315m | 45k TPD" },
+  { name: "Sagar- Sandheads", draft: "18.5m", type: "Deepwater Anchorage Transshipment Hub | STS Lighterage" },
+  { name: "Haldia", draft: "12.0m", type: "Shallow Riverine Channel Lock-Gate (West Bengal) | 15k TPD" },
 ];
 
 export default function OptimizationPanel({

@@ -57,7 +57,13 @@ class OptimizationResponse(BaseModel):
     origin_port: Optional[str] = None
     route: Optional[str] = None
     port_max_draft_m: Optional[float] = None
+    port_max_loa_m: Optional[float] = None
+    port_max_beam_m: Optional[float] = None
+    port_handling_rate_tpd: Optional[float] = None
     port_waiting_hours: Optional[float] = None
+    port_turnaround_days: Optional[float] = None
+    deadheading_cost_usd: Optional[float] = None
+    idle_time_penalty_usd: Optional[float] = None
     required_cargo_mt: Optional[float] = None
     total_cargo_allocated_mt: Optional[float] = None
     total_estimated_cost_usd: float = Field(..., description="Optimized landed logistics cost in USD")

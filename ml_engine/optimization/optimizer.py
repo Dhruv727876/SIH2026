@@ -18,34 +18,53 @@ from data_pipeline.fetch_port_data import PORT_CONFIGS
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vessel-charter-optimizer")
 
-# Vessel Specifications
+# Vessel Specifications (Draft, LOA, Beam, Capacity, Index, and Consumption)
 VESSEL_SPECS = {
     "Capesize": {
         "capacity_mt": 150000.0,
         "min_draft_m": 17.0,
+        "loa_m": 292.0,
+        "beam_m": 45.0,
         "index_name": "BCI",
         "rate_scale": 1.0 / 140.0,  # Convert BCI index points (~2400) to $/MT (~$17.14/MT)
         "daily_hire_usd": 28000.0,
+        "bunker_consumption_tpd": 42.0,
     },
     "Panamax": {
         "capacity_mt": 80000.0,
         "min_draft_m": 14.0,
+        "loa_m": 225.0,
+        "beam_m": 32.26,
         "index_name": "BPI",
         "rate_scale": 1.0 / 85.0,   # Convert BPI index points (~1650) to $/MT (~$19.41/MT)
         "daily_hire_usd": 18000.0,
+        "bunker_consumption_tpd": 30.0,
     },
     "Supramax": {
         "capacity_mt": 50000.0,
         "min_draft_m": 11.0,
+        "loa_m": 199.0,
+        "beam_m": 32.26,
         "index_name": "BSI",
         "rate_scale": 1.0 / 58.0,   # Convert BSI index points (~1300) to $/MT (~$22.41/MT)
         "daily_hire_usd": 14000.0,
+        "bunker_consumption_tpd": 24.0,
+    },
+    "Handysize": {
+        "capacity_mt": 35000.0,
+        "min_draft_m": 10.0,
+        "loa_m": 180.0,
+        "beam_m": 28.4,
+        "index_name": "BHSI",
+        "rate_scale": 1.0 / 32.0,   # Convert BHSI index points (~750) to $/MT (~$23.44/MT)
+        "daily_hire_usd": 11000.0,
+        "bunker_consumption_tpd": 18.0,
     },
 }
 
 DEMURRAGE_DAILY_RATE_USD = 25000.0  # Industry standard daily demurrage penalty
 
-# Route Distance Multipliers for Major Coal/Ore Export Terminals
+# Route Distance Multipliers for Major Coal/Ore Export Terminals (PS Origins + Key Lanes)
 ROUTE_DISTANCE_MULTIPLIERS = {
     "Australia": {
         "multiplier": 1.0,
@@ -58,6 +77,24 @@ ROUTE_DISTANCE_MULTIPLIERS = {
         "origin_code": "Samarinda (IDN)",
         "origin_full": "Indonesia (Samarinda)",
         "distance_nm": 2600,
+    },
+    "Mozambique": {
+        "multiplier": 0.95,
+        "origin_code": "Maputo (MOZ)",
+        "origin_full": "Mozambique (Maputo / Beira)",
+        "distance_nm": 4100,
+    },
+    "Russia": {
+        "multiplier": 1.12,
+        "origin_code": "Vostochny (RUS)",
+        "origin_full": "Russia (Vostochny / Taman)",
+        "distance_nm": 5800,
+    },
+    "USA": {
+        "multiplier": 1.45,
+        "origin_code": "Hampton Roads (USA)",
+        "origin_full": "USA (Hampton Roads / Baltimore)",
+        "distance_nm": 9800,
     },
     "South Africa": {
         "multiplier": 1.15,
@@ -80,11 +117,17 @@ def get_route_info(origin_port: Optional[str]) -> Dict[str, Any]:
         return ROUTE_DISTANCE_MULTIPLIERS["Australia"]
 
     norm = origin_port.strip().lower()
-    if "brazil" in norm or "tubarao" in norm:
+    if "mozambique" in norm or "maputo" in norm or "beira" in norm:
+        return ROUTE_DISTANCE_MULTIPLIERS["Mozambique"]
+    elif "russia" in norm or "vostochny" in norm or "taman" in norm or "nakhodka" in norm:
+        return ROUTE_DISTANCE_MULTIPLIERS["Russia"]
+    elif "usa" in norm or "us " in norm or "us(" in norm or "hampton" in norm or "baltimore" in norm or "america" in norm or norm == "us":
+        return ROUTE_DISTANCE_MULTIPLIERS["USA"]
+    elif "brazil" in norm or "tubarao" in norm:
         return ROUTE_DISTANCE_MULTIPLIERS["Brazil"]
     elif "south africa" in norm or "richards" in norm or "africa" in norm:
         return ROUTE_DISTANCE_MULTIPLIERS["South Africa"]
-    elif "indonesia" in norm or "samarinda" in norm:
+    elif "indonesia" in norm or "samarinda" in norm or "banjarmasin" in norm:
         return ROUTE_DISTANCE_MULTIPLIERS["Indonesia"]
     else:
         return ROUTE_DISTANCE_MULTIPLIERS["Australia"]
@@ -107,18 +150,22 @@ class VesselCharterOptimizer:
 
     def fetch_port_constraints(self, target_port: str, db: Optional[Any] = None) -> Dict[str, Any]:
         """
-        Fetches port draft limit and current waiting time from DB, local config, or backend API.
+        Fetches port draft limit, LOA, Beam, cargo handling rate, and waiting time from DB, local config, or fallback defaults.
         """
+        norm_target = target_port.strip().lower()
         if db is not None:
             try:
                 from models.port_data import PortData
                 from sqlalchemy import select
-                stmt = select(PortData).where(PortData.port_name.ilike(target_port.strip()))
+                stmt = select(PortData).where(PortData.port_name.ilike(f"%{target_port.strip()}%"))
                 port_row = db.scalars(stmt).first()
                 if port_row:
                     return {
                         "port_name": port_row.port_name,
                         "max_draft_meters": float(port_row.max_draft_meters),
+                        "max_loa_meters": float(getattr(port_row, "max_loa_meters", 260.0) or 260.0),
+                        "max_beam_meters": float(getattr(port_row, "max_beam_meters", 43.0) or 43.0),
+                        "cargo_handling_rate_tpd": float(getattr(port_row, "cargo_handling_rate_tpd", 35000.0) or 35000.0),
                         "current_waiting_time_hours": float(port_row.current_waiting_time_hours),
                     }
             except Exception as e:
@@ -126,10 +173,14 @@ class VesselCharterOptimizer:
 
         # Local default configs (instant in-memory lookup)
         for p in PORT_CONFIGS:
-            if p["port_name"].lower() == target_port.lower():
+            p_name = p["port_name"].lower()
+            if p_name == norm_target or p_name in norm_target or norm_target in p_name:
                 return {
                     "port_name": p["port_name"],
                     "max_draft_meters": float(p["max_draft_meters"]),
+                    "max_loa_meters": float(p.get("max_loa_meters", 260.0)),
+                    "max_beam_meters": float(p.get("max_beam_meters", 43.0)),
+                    "cargo_handling_rate_tpd": float(p.get("cargo_handling_rate_tpd", 35000.0)),
                     "current_waiting_time_hours": float(p.get("base_waiting", 36.0)),
                 }
 
@@ -137,6 +188,9 @@ class VesselCharterOptimizer:
         return {
             "port_name": target_port,
             "max_draft_meters": 14.5,
+            "max_loa_meters": 260.0,
+            "max_beam_meters": 43.0,
+            "cargo_handling_rate_tpd": 35000.0,
             "current_waiting_time_hours": 36.0,
         }
 
@@ -147,7 +201,7 @@ class VesselCharterOptimizer:
         force_refresh: bool = False,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Fetches or generates rate forecasts for all vessel class indices (BCI, BPI, BSI).
+        Fetches or generates rate forecasts for all vessel class indices (BCI, BPI, BSI, BHSI).
         """
         rate_trajectories: Dict[str, List[Dict[str, Any]]] = {}
         for vessel_type, spec in VESSEL_SPECS.items():
@@ -159,6 +213,60 @@ class VesselCharterOptimizer:
             )
             rate_trajectories[vessel_type] = forecast[:horizon_days]
         return rate_trajectories
+
+    def _compute_vessel_voyage_costs(
+        self,
+        vessel_type: str,
+        predicted_index_val: float,
+        rate_multiplier: float,
+        waiting_hours: float,
+        handling_rate_tpd: float,
+        distance_nm: float,
+    ) -> Dict[str, float]:
+        """
+        Computes the complete voyage cost breakdown according to Maritime Quant principles:
+        1. Laden Voyage Freight Cost: capacity * freight_rate_usd_mt
+        2. Port Stay Turnaround Cost: (waiting_days * demurrage_rate) + (discharge_laytime_days * daily_hire)
+        3. Deadheading (Ballast Return Cost): ballast_days * daily_ballast_cost (fuel + hire)
+        4. Idle Time Buffer Penalty: idle_days * daily_hire
+        """
+        spec = VESSEL_SPECS[vessel_type]
+        cap = spec["capacity_mt"]
+        scale = spec["rate_scale"]
+        hire = spec["daily_hire_usd"]
+        bunker_tpd = spec.get("bunker_consumption_tpd", 24.0)
+
+        # 1. Laden Freight Cost
+        freight_rate_per_mt = predicted_index_val * scale * rate_multiplier
+        laden_freight_cost = cap * freight_rate_per_mt
+
+        # 2. Port Turnaround Stay
+        waiting_days = waiting_hours / 24.0
+        discharge_days = cap / max(1000.0, handling_rate_tpd)
+        turnaround_cost = (waiting_days * DEMURRAGE_DAILY_RATE_USD) + (discharge_days * hire)
+
+        # 3. Deadheading (Ballast Return Leg to Origin)
+        # Average cruising speed ~13 knots -> 312 nautical miles per day
+        ballast_days = distance_nm / (13.0 * 24.0)
+        daily_ballast_cost = (hire * 0.60) + (bunker_tpd * 620.0 * 0.70)
+        deadheading_cost = ballast_days * daily_ballast_cost
+
+        # 4. Idle Scenario Penalty (operational buffer between charter stems)
+        idle_days = 1.5
+        idle_time_cost = idle_days * hire
+
+        total_cost = laden_freight_cost + turnaround_cost + deadheading_cost + idle_time_cost
+
+        return {
+            "capacity_mt": cap,
+            "freight_rate_usd_mt": freight_rate_per_mt,
+            "laden_freight_cost": laden_freight_cost,
+            "turnaround_cost": turnaround_cost,
+            "turnaround_days": waiting_days + discharge_days,
+            "deadheading_cost": deadheading_cost,
+            "idle_time_cost": idle_time_cost,
+            "total_trip_cost": total_cost,
+        }
 
     def optimize_charter_plan(
         self,
@@ -172,26 +280,29 @@ class VesselCharterOptimizer:
         force_refresh: bool = False,
     ) -> Dict[str, Any]:
         """
-        Formulates and solves the MILP charter allocation problem with route distance multipliers.
-        Evaluates Direct Discharge vs Mid-Sea Lighterage (e.g. Capesize at Sandheads) when port draft < 17.0m.
+        Formulates and solves the MILP charter allocation problem factoring in
+        Draft, LOA, Beam, Cargo Handling Rates, Deadheading, and Idle time penalties.
+        Evaluates Direct Discharge vs Mid-Sea Lighterage (e.g. Capesize at Sandheads).
         """
         route_info = get_route_info(origin_port)
         route_mult = route_info["multiplier"]
         combined_multiplier = route_mult * (disruption_multiplier or 1.0)
         route_display = f"{route_info['origin_code']} -> {target_port} (IND)"
+        distance_nm = float(route_info["distance_nm"])
 
         logger.info(
             f"Formulating MILP optimization for {required_cargo_mt:,.0f} MT cargo on route '{route_display}' "
-            f"(Route Mult: {route_mult}x, Combined: {combined_multiplier:.2f}x, Allow Lighterage: {allow_lighterage}) "
+            f"(Route Mult: {route_mult}x, Combined: {combined_multiplier:.2f}x, Distance: {distance_nm:,.0f} NM) "
             f"over {planning_horizon_days} days..."
         )
 
         # 1. Fetch Port Constraints & Demurrage
         port_info = self.fetch_port_constraints(target_port, db=db)
         max_draft = float(port_info["max_draft_meters"])
+        max_loa = float(port_info.get("max_loa_meters", 260.0))
+        max_beam = float(port_info.get("max_beam_meters", 43.0))
+        handling_rate = float(port_info.get("cargo_handling_rate_tpd", 35000.0))
         waiting_hours = float(port_info.get("current_waiting_time_hours", 36.0))
-        demurrage_days = waiting_hours / 24.0
-        expected_demurrage_per_vessel = demurrage_days * DEMURRAGE_DAILY_RATE_USD
 
         # 2. Fetch Multi-Class Freight Rate Forecasts
         forecasts = self.fetch_freight_rate_forecasts(
@@ -200,30 +311,43 @@ class VesselCharterOptimizer:
             force_refresh=force_refresh,
         )
 
-        # 3. Determine Feasible Vessel Classes by Direct Draft
+        # 3. Determine Feasible Vessel Classes by Draft, LOA, and Beam Constraints
         direct_feasible_vessels = []
         for v_name, spec in VESSEL_SPECS.items():
-            if spec["min_draft_m"] <= max_draft:
+            draft_ok = spec["min_draft_m"] <= max_draft
+            loa_ok = spec.get("loa_m", 0.0) <= max_loa
+            beam_ok = spec.get("beam_m", 0.0) <= max_beam
+
+            if draft_ok and loa_ok and beam_ok:
                 direct_feasible_vessels.append(v_name)
             else:
-                logger.info(f"Vessel class {v_name} disallowed directly at {target_port} (requires {spec['min_draft_m']}m > max draft {max_draft}m).")
+                disqualify_reasons = []
+                if not draft_ok:
+                    disqualify_reasons.append(f"draft {spec['min_draft_m']}m > {max_draft}m")
+                if not loa_ok:
+                    disqualify_reasons.append(f"LOA {spec.get('loa_m')}m > {max_loa}m")
+                if not beam_ok:
+                    disqualify_reasons.append(f"Beam {spec.get('beam_m')}m > {max_beam}m")
+                logger.info(
+                    f"Vessel class {v_name} disallowed directly at {target_port}: {', '.join(disqualify_reasons)}."
+                )
 
         strategy_used = "DIRECT_DISCHARGE"
         lighterage_penalty_applied = 0.0
 
-        # Debug logging for lighterage parameter tracking
-        logger.info(f"Target Port: {target_port} | Draft: {max_draft}m")
-        logger.info(f"Allow Lighterage Flag Received: {allow_lighterage} (Type: {type(allow_lighterage)})")
-        logger.info(f"Required Cargo: {required_cargo_mt} MT")
+        # Debug logging for parameter tracking
+        logger.info(f"Target Port: {target_port} | Draft: {max_draft}m | LOA: {max_loa}m | Beam: {max_beam}m | Handling: {handling_rate:,.0f} TPD")
+        logger.info(f"Allow Lighterage Flag Received: {allow_lighterage} | Required Cargo: {required_cargo_mt:,.0f} MT")
 
         # 4. Multi-Scenario MILP Optimization (Direct Discharge vs Mid-Sea Lighterage)
-        if max_draft < 17.0 and allow_lighterage:
+        cape_infeasible_directly = (max_draft < 17.0 or max_loa < 292.0 or max_beam < 45.0)
+        if cape_infeasible_directly and allow_lighterage:
             logger.info(
-                f"Target port {target_port} draft is {max_draft}m (< 17.0m Capesize limit) with allow_lighterage=True. "
-                "Evaluating Scenario A (Direct) vs Scenario B (Lighterage at Sandheads)..."
+                f"Target port {target_port} physical limits (Draft {max_draft}m, LOA {max_loa}m, Beam {max_beam}m) "
+                "exclude direct Capesize berthing. Evaluating Scenario A (Direct) vs Scenario B (Lighterage at Sandheads)..."
             )
 
-            # --- Scenario A: Direct Allocation using only draft-compliant vessels ---
+            # --- Scenario A: Direct Allocation using only compliant vessels ---
             solution_a = None
             cost_a = float("inf")
             if direct_feasible_vessels:
@@ -232,7 +356,9 @@ class VesselCharterOptimizer:
                     feasible_vessels=direct_feasible_vessels,
                     forecasts=forecasts,
                     horizon_days=planning_horizon_days,
-                    demurrage_cost=expected_demurrage_per_vessel,
+                    waiting_hours=waiting_hours,
+                    handling_rate_tpd=handling_rate,
+                    distance_nm=distance_nm,
                     rate_multiplier=combined_multiplier,
                 )
                 if solution_a["status"] != "Optimal":
@@ -241,20 +367,24 @@ class VesselCharterOptimizer:
                         feasible_vessels=direct_feasible_vessels,
                         forecasts=forecasts,
                         horizon_days=planning_horizon_days,
-                        demurrage_cost=expected_demurrage_per_vessel,
+                        waiting_hours=waiting_hours,
+                        handling_rate_tpd=handling_rate,
+                        distance_nm=distance_nm,
                         rate_multiplier=combined_multiplier,
                     )
                 if solution_a["status"] == "Optimal":
                     cost_a = solution_a["total_cost"]
 
             # --- Scenario B: Mid-Sea Lighterage with Capesize bulkers ---
-            # Allocate Capesize vessels (150k MT stems)
+            # Allocate Capesize vessels (transshipment at deepwater Sagar-Sandheads anchorage: 18.5m draft, 330m LOA)
             solution_b = self._solve_milp_pulp(
                 required_cargo_mt=required_cargo_mt,
                 feasible_vessels=["Capesize"],
                 forecasts=forecasts,
                 horizon_days=planning_horizon_days,
-                demurrage_cost=expected_demurrage_per_vessel,
+                waiting_hours=waiting_hours,
+                handling_rate_tpd=handling_rate,
+                distance_nm=distance_nm,
                 rate_multiplier=combined_multiplier,
             )
             if solution_b["status"] != "Optimal":
@@ -263,7 +393,9 @@ class VesselCharterOptimizer:
                     feasible_vessels=["Capesize"],
                     forecasts=forecasts,
                     horizon_days=planning_horizon_days,
-                    demurrage_cost=expected_demurrage_per_vessel,
+                    waiting_hours=waiting_hours,
+                    handling_rate_tpd=handling_rate,
+                    distance_nm=distance_nm,
                     rate_multiplier=combined_multiplier,
                 )
 
@@ -287,15 +419,8 @@ class VesselCharterOptimizer:
                     stem_penalty = (stem_cargo * 3.50) + (stem_qty * DEMURRAGE_DAILY_RATE_USD)
                     item["estimated_trip_cost_usd"] = round(float(item["estimated_trip_cost_usd"]) + stem_penalty, 2)
 
-            # Log exact costs of both scenarios
             logger.info(f"Scenario A (Direct) Cost: {cost_a} | Scenario B (Lighterage) Cost: {cost_b}")
 
-            # When allow_lighterage=True, the operator has explicitly opted-in to evaluate
-            # Capesize STS transshipment. We prefer lighterage when it is:
-            #   (a) strictly cheaper, OR
-            #   (b) within a 15% cost overhead — operational advantages (fewer port calls,
-            #       larger stems, lower BCI rates) justify a small premium, OR
-            #   (c) direct discharge is physically infeasible (draft limit exceeded).
             is_b_optimal = solution_b.get("status") == "Optimal"
             is_a_optimal = solution_a is not None and solution_a.get("status") == "Optimal" and not math.isinf(cost_a)
 
@@ -340,7 +465,7 @@ class VesselCharterOptimizer:
             else:
                 return {
                     "status": "Infeasible",
-                    "message": f"Port {target_port} has max draft of {max_draft}m. Neither direct discharge nor lighterage feasible.",
+                    "message": f"Port {target_port} physical limits (Draft {max_draft}m, LOA {max_loa}m, Beam {max_beam}m) reject all vessels.",
                     "target_port": target_port,
                     "origin_port": route_info["origin_full"],
                     "route": route_display,
@@ -351,11 +476,11 @@ class VesselCharterOptimizer:
                     "lighterage_penalty_applied": 0.0,
                 }
         else:
-            # Standard single scenario when draft >= 17.0m or lighterage disabled
+            # Standard single scenario when Cape can enter or lighterage disabled
             if not direct_feasible_vessels:
                 return {
                     "status": "Infeasible",
-                    "message": f"Port {target_port} has max draft of {max_draft}m. No vessels in fleet can enter.",
+                    "message": f"Port {target_port} physical limits (Draft {max_draft}m, LOA {max_loa}m, Beam {max_beam}m) reject all fleet vessels.",
                     "target_port": target_port,
                     "origin_port": route_info["origin_full"],
                     "route": route_display,
@@ -371,7 +496,9 @@ class VesselCharterOptimizer:
                 feasible_vessels=direct_feasible_vessels,
                 forecasts=forecasts,
                 horizon_days=planning_horizon_days,
-                demurrage_cost=expected_demurrage_per_vessel,
+                waiting_hours=waiting_hours,
+                handling_rate_tpd=handling_rate,
+                distance_nm=distance_nm,
                 rate_multiplier=combined_multiplier,
             )
             if solution["status"] != "Optimal":
@@ -380,7 +507,9 @@ class VesselCharterOptimizer:
                     feasible_vessels=direct_feasible_vessels,
                     forecasts=forecasts,
                     horizon_days=planning_horizon_days,
-                    demurrage_cost=expected_demurrage_per_vessel,
+                    waiting_hours=waiting_hours,
+                    handling_rate_tpd=handling_rate,
+                    distance_nm=distance_nm,
                     rate_multiplier=combined_multiplier,
                 )
             strategy_used = "DIRECT_DISCHARGE"
@@ -392,17 +521,22 @@ class VesselCharterOptimizer:
             required_cargo_mt=required_cargo_mt,
             feasible_vessels=benchmark_vessels,
             forecasts=forecasts,
-            demurrage_cost=expected_demurrage_per_vessel,
+            waiting_hours=waiting_hours,
+            handling_rate_tpd=handling_rate,
+            distance_nm=distance_nm,
             rate_multiplier=combined_multiplier,
         )
 
-        if "Capesize" in benchmark_vessels and max_draft < 17.0:
+        if "Capesize" in benchmark_vessels and cape_infeasible_directly:
             vessels_needed = int(-(-required_cargo_mt // VESSEL_SPECS["Capesize"]["capacity_mt"]))
             naive_lighterage_penalty = (vessels_needed * VESSEL_SPECS["Capesize"]["capacity_mt"] * 3.50) + (vessels_needed * DEMURRAGE_DAILY_RATE_USD)
             naive_cost += naive_lighterage_penalty
 
         optimized_cost = solution["total_cost"]
         estimated_savings = max(0.0, naive_cost - optimized_cost)
+
+        # Compute port turnaround days (waiting + laytime)
+        avg_turnaround_days = (waiting_hours / 24.0) + (required_cargo_mt / max(1000.0, handling_rate * 2.0))
 
         logger.info(
             f"Optimization result ({route_display}): Strategy={strategy_used}, Status={solution['status']}, "
@@ -415,7 +549,13 @@ class VesselCharterOptimizer:
             "origin_port": route_info["origin_full"],
             "route": route_display,
             "port_max_draft_m": max_draft,
+            "port_max_loa_m": max_loa,
+            "port_max_beam_m": max_beam,
+            "port_handling_rate_tpd": handling_rate,
             "port_waiting_hours": waiting_hours,
+            "port_turnaround_days": round(float(avg_turnaround_days), 1),
+            "deadheading_cost_usd": round(float(solution.get("total_deadheading_cost", 0.0)), 2),
+            "idle_time_penalty_usd": round(float(solution.get("total_idle_cost", 0.0)), 2),
             "required_cargo_mt": float(required_cargo_mt),
             "total_cargo_allocated_mt": float(solution["total_cargo_delivered"]),
             "total_estimated_cost_usd": round(float(optimized_cost), 2),
@@ -436,11 +576,18 @@ class VesselCharterOptimizer:
         feasible_vessels: List[str],
         forecasts: Dict[str, List[Dict[str, Any]]],
         horizon_days: int,
-        demurrage_cost: float,
+        waiting_hours: float,
+        handling_rate_tpd: float,
+        distance_nm: float,
         rate_multiplier: float = 1.0,
     ) -> Dict[str, Any]:
         """
         Solves the MILP formulation using the PuLP CBC solver.
+        Mathematically enforces:
+        1. Demand Satisfaction
+        2. Daily Berth Dispatch Limit
+        3. Port Daily Handling Capacity (Turnaround Laytime Throughput)
+        4. Objective includes Freight + Turnaround Port Cost + Deadheading (Ballast) + Idle Time Penalties.
         """
         try:
             import pulp
@@ -453,17 +600,22 @@ class VesselCharterOptimizer:
                 for t in range(horizon_days):
                     x_vars[(v, t)] = pulp.LpVariable(f"vessels_{v}_day_{t}", lowBound=0, cat=pulp.LpInteger)
 
-            # Cost Coefficients
+            # Cost Coefficients Matrix
             cost_matrix = {}
+            breakdown_matrix = {}
             for v in feasible_vessels:
-                cap = VESSEL_SPECS[v]["capacity_mt"]
-                scale = VESSEL_SPECS[v]["rate_scale"]
                 for t in range(horizon_days):
-                    predicted_index_val = forecasts[v][t]["predicted_value"]
-                    freight_rate_per_mt = predicted_index_val * scale * rate_multiplier
-                    voyage_freight_cost = cap * freight_rate_per_mt
-                    total_vessel_trip_cost = voyage_freight_cost + demurrage_cost
-                    cost_matrix[(v, t)] = total_vessel_trip_cost
+                    pred_val = forecasts[v][t]["predicted_value"]
+                    costs = self._compute_vessel_voyage_costs(
+                        vessel_type=v,
+                        predicted_index_val=pred_val,
+                        rate_multiplier=rate_multiplier,
+                        waiting_hours=waiting_hours,
+                        handling_rate_tpd=handling_rate_tpd,
+                        distance_nm=distance_nm,
+                    )
+                    cost_matrix[(v, t)] = costs["total_trip_cost"]
+                    breakdown_matrix[(v, t)] = costs
 
             # Objective Function: Min Sum(x[v, t] * UnitTripCost[v, t])
             prob += pulp.lpSum([x_vars[(v, t)] * cost_matrix[(v, t)] for v in feasible_vessels for t in range(horizon_days)])
@@ -482,6 +634,15 @@ class VesselCharterOptimizer:
                     f"Berth_Daily_Cap_Day_{t}",
                 )
 
+            # Constraint 3: Port Cargo Handling Throughput Limit
+            # Total cargo scheduled for discharge on day t cannot exceed handling equipment throughput
+            for t in range(horizon_days):
+                prob += (
+                    pulp.lpSum([x_vars[(v, t)] * VESSEL_SPECS[v]["capacity_mt"] for v in feasible_vessels])
+                    <= handling_rate_tpd * 2.0,
+                    f"Port_Handling_Throughput_Day_{t}",
+                )
+
             # Solve problem silently
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
             solver_status = pulp.LpStatus[prob.status]
@@ -490,6 +651,8 @@ class VesselCharterOptimizer:
                 schedule: List[Dict[str, Any]] = []
                 total_cargo = 0.0
                 total_cost = 0.0
+                total_deadheading = 0.0
+                total_idle = 0.0
 
                 for t in range(horizon_days):
                     date_str = forecasts[feasible_vessels[0]][t]["timestamp"]
@@ -497,16 +660,14 @@ class VesselCharterOptimizer:
                         count = int(pulp.value(x_vars[(v, t)]) or 0)
                         if count > 0:
                             cap = VESSEL_SPECS[v]["capacity_mt"]
-                            rate_usd_mt = (
-                                forecasts[v][t]["predicted_value"]
-                                * VESSEL_SPECS[v]["rate_scale"]
-                                * rate_multiplier
-                            )
+                            brk = breakdown_matrix[(v, t)]
                             trip_cost = cost_matrix[(v, t)] * count
                             cargo_delivered = cap * count
 
                             total_cargo += cargo_delivered
                             total_cost += trip_cost
+                            total_deadheading += brk["deadheading_cost"] * count
+                            total_idle += brk["idle_time_cost"] * count
 
                             schedule.append({
                                 "date": date_str,
@@ -514,7 +675,8 @@ class VesselCharterOptimizer:
                                 "quantity": count,
                                 "capacity_mt": cap,
                                 "total_cargo_mt": cargo_delivered,
-                                "freight_rate_usd_mt": round(float(rate_usd_mt), 2),
+                                "freight_rate_usd_mt": round(float(brk["freight_rate_usd_mt"]), 2),
+                                "turnaround_days": round(float(brk["turnaround_days"]), 1),
                                 "estimated_trip_cost_usd": round(float(trip_cost), 2),
                             })
 
@@ -522,6 +684,8 @@ class VesselCharterOptimizer:
                     "status": "Optimal",
                     "total_cost": total_cost,
                     "total_cargo_delivered": total_cargo,
+                    "total_deadheading_cost": total_deadheading,
+                    "total_idle_cost": total_idle,
                     "vessel_schedule": schedule,
                 }
 
@@ -536,7 +700,9 @@ class VesselCharterOptimizer:
         feasible_vessels: List[str],
         forecasts: Dict[str, List[Dict[str, Any]]],
         horizon_days: int,
-        demurrage_cost: float,
+        waiting_hours: float,
+        handling_rate_tpd: float,
+        distance_nm: float,
         rate_multiplier: float = 1.0,
     ) -> Dict[str, Any]:
         """
@@ -549,22 +715,27 @@ class VesselCharterOptimizer:
         for t in range(horizon_days):
             date_str = forecasts[feasible_vessels[0]][t]["timestamp"]
             for v in feasible_vessels:
-                cap = VESSEL_SPECS[v]["capacity_mt"]
-                rate_usd_mt = (
-                    forecasts[v][t]["predicted_value"]
-                    * VESSEL_SPECS[v]["rate_scale"]
-                    * rate_multiplier
+                pred_val = forecasts[v][t]["predicted_value"]
+                costs = self._compute_vessel_voyage_costs(
+                    vessel_type=v,
+                    predicted_index_val=pred_val,
+                    rate_multiplier=rate_multiplier,
+                    waiting_hours=waiting_hours,
+                    handling_rate_tpd=handling_rate_tpd,
+                    distance_nm=distance_nm,
                 )
-                total_trip_cost = (cap * rate_usd_mt) + demurrage_cost
-                cost_per_mt = total_trip_cost / cap
+                cost_per_mt = costs["total_trip_cost"] / costs["capacity_mt"]
 
                 candidates.append({
                     "day": t,
                     "date": date_str,
                     "vessel_type": v,
-                    "capacity_mt": cap,
-                    "rate_usd_mt": rate_usd_mt,
-                    "trip_cost": total_trip_cost,
+                    "capacity_mt": costs["capacity_mt"],
+                    "rate_usd_mt": costs["freight_rate_usd_mt"],
+                    "turnaround_days": costs["turnaround_days"],
+                    "deadheading_cost": costs["deadheading_cost"],
+                    "idle_cost": costs["idle_time_cost"],
+                    "trip_cost": costs["total_trip_cost"],
                     "cost_per_mt": cost_per_mt,
                 })
 
@@ -573,6 +744,8 @@ class VesselCharterOptimizer:
 
         allocated_cargo = 0.0
         total_cost = 0.0
+        total_deadheading = 0.0
+        total_idle = 0.0
         daily_vessel_counts: Dict[int, int] = {t: 0 for t in range(horizon_days)}
         schedule_map: Dict[Tuple[int, str], Dict[str, Any]] = {}
 
@@ -588,6 +761,8 @@ class VesselCharterOptimizer:
                 daily_vessel_counts[day] += 1
                 allocated_cargo += cand["capacity_mt"]
                 total_cost += cand["trip_cost"]
+                total_deadheading += cand["deadheading_cost"]
+                total_idle += cand["idle_cost"]
 
                 key = (day, v)
                 if key in schedule_map:
@@ -602,6 +777,7 @@ class VesselCharterOptimizer:
                         "capacity_mt": cand["capacity_mt"],
                         "total_cargo_mt": cand["capacity_mt"],
                         "freight_rate_usd_mt": round(float(cand["rate_usd_mt"]), 2),
+                        "turnaround_days": round(float(cand["turnaround_days"]), 1),
                         "estimated_trip_cost_usd": cand["trip_cost"],
                     }
 
@@ -613,6 +789,8 @@ class VesselCharterOptimizer:
             "status": "Optimal",
             "total_cost": total_cost,
             "total_cargo_delivered": allocated_cargo,
+            "total_deadheading_cost": total_deadheading,
+            "total_idle_cost": total_idle,
             "vessel_schedule": schedule_list,
         }
 
@@ -621,22 +799,29 @@ class VesselCharterOptimizer:
         required_cargo_mt: float,
         feasible_vessels: List[str],
         forecasts: Dict[str, List[Dict[str, Any]]],
-        demurrage_cost: float,
+        waiting_hours: float,
+        handling_rate_tpd: float,
+        distance_nm: float,
         rate_multiplier: float = 1.0,
     ) -> float:
         """
-        Calculates the naive benchmark cost: Chartering entirely on Day 1 at Day 1 spot rates.
+        Calculates the naive benchmark cost: Chartering entirely on Day 1 at Day 1 spot rates
+        with complete voyage economics (turnaround + deadheading + idle).
         """
         largest_vessel = max(feasible_vessels, key=lambda v: VESSEL_SPECS[v]["capacity_mt"])
-        cap = VESSEL_SPECS[largest_vessel]["capacity_mt"]
-        day1_rate_usd_mt = (
-            forecasts[largest_vessel][0]["predicted_value"]
-            * VESSEL_SPECS[largest_vessel]["rate_scale"]
-            * rate_multiplier
+        day1_val = forecasts[largest_vessel][0]["predicted_value"]
+        costs = self._compute_vessel_voyage_costs(
+            vessel_type=largest_vessel,
+            predicted_index_val=day1_val,
+            rate_multiplier=rate_multiplier,
+            waiting_hours=waiting_hours,
+            handling_rate_tpd=handling_rate_tpd,
+            distance_nm=distance_nm,
         )
 
+        cap = costs["capacity_mt"]
         vessels_needed = int(-(-required_cargo_mt // cap))  # ceiling division
-        single_trip_cost = (cap * day1_rate_usd_mt) + demurrage_cost
+        single_trip_cost = costs["total_trip_cost"]
 
         return float(vessels_needed * single_trip_cost)
 

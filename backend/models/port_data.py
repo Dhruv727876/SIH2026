@@ -14,6 +14,9 @@ class PortData(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
     port_name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     max_draft_meters: Mapped[float] = mapped_column(Float, nullable=False)
+    max_loa_meters: Mapped[float] = mapped_column(Float, default=260.0, nullable=True)
+    max_beam_meters: Mapped[float] = mapped_column(Float, default=43.0, nullable=True)
+    cargo_handling_rate_tpd: Mapped[float] = mapped_column(Float, default=35000.0, nullable=True)
     current_waiting_time_hours: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

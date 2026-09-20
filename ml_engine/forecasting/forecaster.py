@@ -509,6 +509,7 @@ class FreightForecaster:
             "Capesize": {"index": "BCI", "scale": 1.0 / 140.0, "fallback": 18.0},
             "Panamax": {"index": "BPI", "scale": 1.0 / 85.0, "fallback": 20.5},
             "Supramax": {"index": "BSI", "scale": 1.0 / 58.0, "fallback": 23.5},
+            "Handysize": {"index": "BHSI", "scale": 1.0 / 32.0, "fallback": 24.5},
         }
         spec = mapping.get(normalized_type, mapping["Capesize"])
         index_name = spec["index"]

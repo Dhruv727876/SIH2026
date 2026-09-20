@@ -50,6 +50,14 @@ const INDICES_CONFIG: Record<string, IndexMeta> = {
     lineColor: "#7c3aed",
     accentColor: "#7c3aed",
   },
+  BHSI: {
+    label: "Baltic Handysize Index (BHSI)",
+    unit: "pts",
+    category: "Geared Handysize (28k-40k DWT)",
+    description: "Handysize Bulk Carriers (Geared self-unloaders for shallow drafts & restricted riverine berths)",
+    lineColor: "#0d9488",
+    accentColor: "#0d9488",
+  },
   BDI_KAGGLE: {
     label: "Baltic Dry Index (25-Yr Historical)",
     unit: "pts",

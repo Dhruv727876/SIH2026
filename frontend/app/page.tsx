@@ -21,46 +21,93 @@ import {
 
 const DISCHARGE_PORT_METADATA: Record<
   string,
-  { draftLimit: number; allowsCape: boolean; allowsPanamax: boolean; description: string }
+  {
+    draftLimit: number;
+    maxLoa: number;
+    maxBeam: number;
+    handlingRate: number;
+    allowsCape: boolean;
+    allowsPanamax: boolean;
+    description: string;
+  }
 > = {
   Paradip: {
     draftLimit: 14.5,
+    maxLoa: 260.0,
+    maxBeam: 43.0,
+    handlingRate: 45000,
     allowsCape: false,
     allowsPanamax: true,
     description: "Major Coking Coal Terminal (Odisha). 14.50m channel ceiling strictly disqualifies Capesize bulkers to eliminate Sandheads lighterage.",
   },
   Visakhapatnam: {
     draftLimit: 16.5,
+    maxLoa: 280.0,
+    maxBeam: 45.0,
+    handlingRate: 35000,
     allowsCape: false,
     allowsPanamax: true,
     description: "RINL dedicated Outer Harbour (Andhra Pradesh). 16.50m draft permits deep-laden Panamax vessels with priority berthing.",
   },
-  Haldia: {
-    draftLimit: 12.0,
-    allowsCape: false,
-    allowsPanamax: false,
-    description: "Shallow Riverine Lock-Gate Port (West Bengal). Strictly limited to geared Supramax carriers (50k MT) to prevent grounding in Hooghly shoals.",
-  },
-  Dhamra: {
-    draftLimit: 18.0,
-    allowsCape: true,
-    allowsPanamax: true,
-    description: "Deepwater Port (Odisha). 18.00m draft fully accommodates fully laden Capesize and Panamax carriers without lightering surcharge.",
-  },
   Gangavaram: {
     draftLimit: 20.0,
+    maxLoa: 320.0,
+    maxBeam: 50.0,
+    handlingRate: 40000,
     allowsCape: true,
     allowsPanamax: true,
     description: "Ultra-Deepwater Bulk Port (Andhra Pradesh). Capable of handling standard and Newcastlemax bulkers with zero draft restrictions.",
   },
+  Gopalpur: {
+    draftLimit: 13.5,
+    maxLoa: 230.0,
+    maxBeam: 33.0,
+    handlingRate: 20000,
+    allowsCape: false,
+    allowsPanamax: false,
+    description: "All-weather deep port (Odisha). Supramax/Handymax bulk terminal serving regional steel mills.",
+  },
+  Dhamra: {
+    draftLimit: 18.0,
+    maxLoa: 315.0,
+    maxBeam: 48.0,
+    handlingRate: 45000,
+    allowsCape: true,
+    allowsPanamax: true,
+    description: "Deepwater Port (Odisha). 18.00m draft fully accommodates fully laden Capesize and Panamax carriers without lightering surcharge.",
+  },
+  "Sagar- Sandheads": {
+    draftLimit: 18.5,
+    maxLoa: 330.0,
+    maxBeam: 55.0,
+    handlingRate: 25000,
+    allowsCape: true,
+    allowsPanamax: true,
+    description: "Deepwater Anchorage STS Lighterage Hub for Haldia & Kolkata river ports.",
+  },
+  Haldia: {
+    draftLimit: 12.0,
+    maxLoa: 220.0,
+    maxBeam: 32.3,
+    handlingRate: 15000,
+    allowsCape: false,
+    allowsPanamax: false,
+    description: "Shallow Riverine Lock-Gate Port (West Bengal). Strictly limited to geared Supramax carriers (50k MT) to prevent grounding in Hooghly shoals.",
+  },
   Mormugao: {
     draftLimit: 14.1,
+    maxLoa: 240.0,
+    maxBeam: 38.0,
+    handlingRate: 25000,
     allowsCape: false,
     allowsPanamax: true,
     description: "Mooring Berth (Goa). Accommodates Panamax bulkers.",
   },
   Jaigad: {
     draftLimit: 18.5,
+    maxLoa: 310.0,
+    maxBeam: 48.0,
+    handlingRate: 35000,
     allowsCape: true,
     allowsPanamax: true,
     description: "Deepwater Berth (Maharashtra). Accommodates Capesize bulkers.",
@@ -261,7 +308,13 @@ export default function FreightDSSApp() {
       target_port: payload.target_port,
       route: `${payload.origin_port || "Australia"} -> ${payload.target_port} (IND)`,
       port_max_draft_m: dischargeSpec.draftLimit,
+      port_max_loa_m: dischargeSpec.maxLoa,
+      port_max_beam_m: dischargeSpec.maxBeam,
+      port_handling_rate_tpd: dischargeSpec.handlingRate,
       port_waiting_hours: 36.0,
+      port_turnaround_days: Math.round(((36.0 / 24.0) + (payload.required_cargo_mt / (dischargeSpec.handlingRate * 2.0))) * 10) / 10,
+      deadheading_cost_usd: Math.round(totalCost * 0.18 * 100) / 100,
+      idle_time_penalty_usd: Math.round(qty * 1.5 * 18000 * 100) / 100,
       required_cargo_mt: payload.required_cargo_mt,
       total_cargo_allocated_mt: qty * cap,
       total_estimated_cost_usd: Math.round(totalCost * 100) / 100,

@@ -29,6 +29,12 @@ def create_or_update_port_data(
 
     if existing_port:
         existing_port.max_draft_meters = payload.max_draft_meters
+        if payload.max_loa_meters is not None:
+            existing_port.max_loa_meters = payload.max_loa_meters
+        if payload.max_beam_meters is not None:
+            existing_port.max_beam_meters = payload.max_beam_meters
+        if payload.cargo_handling_rate_tpd is not None:
+            existing_port.cargo_handling_rate_tpd = payload.cargo_handling_rate_tpd
         existing_port.current_waiting_time_hours = payload.current_waiting_time_hours
         existing_port.updated_at = datetime.utcnow()
         db_item = existing_port
@@ -36,6 +42,9 @@ def create_or_update_port_data(
         db_item = PortData(
             port_name=payload.port_name,
             max_draft_meters=payload.max_draft_meters,
+            max_loa_meters=payload.max_loa_meters or 260.0,
+            max_beam_meters=payload.max_beam_meters or 43.0,
+            cargo_handling_rate_tpd=payload.cargo_handling_rate_tpd or 35000.0,
             current_waiting_time_hours=payload.current_waiting_time_hours,
             updated_at=datetime.utcnow(),
         )
