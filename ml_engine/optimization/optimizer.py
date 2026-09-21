@@ -516,53 +516,38 @@ class VesselCharterOptimizer:
             lighterage_penalty_applied = 0.0
 
         # 5. Compute Benchmark Naive Cost (Unmanaged Spot Procurement Baseline)
-        if strategy_used == "MID_SEA_LIGHTERAGE":
-            # For lighterage, compare against chartering Capesize bulkers on Day 1 (including lighterage transshipment fee)
+        # When evaluating lighterage vs direct discharge at shallow ports, the baseline is unmanaged Capesize chartering
+        if allow_lighterage and cape_infeasible_directly:
             benchmark_vessels = ["Capesize"]
-            naive_cost = self._compute_naive_benchmark(
-                required_cargo_mt=required_cargo_mt,
-                feasible_vessels=benchmark_vessels,
-                forecasts=forecasts,
-                waiting_hours=waiting_hours,
-                handling_rate_tpd=handling_rate,
-                distance_nm=distance_nm,
-                rate_multiplier=combined_multiplier,
-            )
-            vessels_needed = int(-(-required_cargo_mt // VESSEL_SPECS["Capesize"]["capacity_mt"]))
-            naive_lighterage_penalty = (vessels_needed * VESSEL_SPECS["Capesize"]["capacity_mt"] * 3.50) + (vessels_needed * DEMURRAGE_DAILY_RATE_USD)
-            naive_cost += naive_lighterage_penalty
+            is_shallow_benchmark = True
         else:
             benchmark_vessels = direct_feasible_vessels if direct_feasible_vessels else ["Capesize"]
-            naive_cost = self._compute_naive_benchmark(
-                required_cargo_mt=required_cargo_mt,
-                feasible_vessels=benchmark_vessels,
-                forecasts=forecasts,
-                waiting_hours=waiting_hours,
-                handling_rate_tpd=handling_rate,
-                distance_nm=distance_nm,
-                rate_multiplier=combined_multiplier,
-            )
+            is_shallow_benchmark = bool(cape_infeasible_directly and ("Capesize" in benchmark_vessels))
 
-        optimized_cost = solution["total_cost"]
-        timing_savings = naive_cost - optimized_cost
+        naive_cost = self._compute_naive_benchmark(
+            required_cargo_mt=required_cargo_mt,
+            feasible_vessels=benchmark_vessels,
+            forecasts=forecasts,
+            waiting_hours=waiting_hours,
+            handling_rate_tpd=handling_rate,
+            distance_nm=distance_nm,
+            rate_multiplier=combined_multiplier,
+            is_shallow_port=is_shallow_benchmark,
+        )
 
-        # In rising (contango) or flat curves where Day 1 has minimum rate,
-        # account for operational demurrage avoidance from MILP laycan scheduling
-        num_stems = sum(int(item.get("quantity", 1)) for item in solution.get("vessel_schedule", []))
-        operational_demurrage_avoidance = num_stems * DEMURRAGE_DAILY_RATE_USD * 0.75  # ~18h waiting avoided per stem
+        total_estimated_cost_usd = round(float(solution["total_cost"]), 2)
+        estimated_savings_usd = max(0.0, round(float(naive_cost - total_estimated_cost_usd), 2))
 
-        if timing_savings > 0.0:
-            estimated_savings = timing_savings
-        else:
-            estimated_savings = operational_demurrage_avoidance
-            naive_cost = optimized_cost + estimated_savings
+        logger.info(
+            f"SAVINGS CALC: Naive=${naive_cost:,.2f} | Optimized=${total_estimated_cost_usd:,.2f} | Savings=${estimated_savings_usd:,.2f}"
+        )
 
         # Compute port turnaround days (waiting + laytime)
         avg_turnaround_days = (waiting_hours / 24.0) + (required_cargo_mt / max(1000.0, handling_rate * 2.0))
 
         logger.info(
             f"Optimization result ({route_display}): Strategy={strategy_used}, Status={solution['status']}, "
-            f"Total Cost=${optimized_cost:,.2f}, Savings=${estimated_savings:,.2f}, Lighterage Penalty=${lighterage_penalty_applied:,.2f}"
+            f"Total Cost=${total_estimated_cost_usd:,.2f}, Savings=${estimated_savings_usd:,.2f}, Lighterage Penalty=${lighterage_penalty_applied:,.2f}"
         )
 
         return {
@@ -580,8 +565,8 @@ class VesselCharterOptimizer:
             "idle_time_penalty_usd": round(float(solution.get("total_idle_cost", 0.0)), 2),
             "required_cargo_mt": float(required_cargo_mt),
             "total_cargo_allocated_mt": float(solution["total_cargo_delivered"]),
-            "total_estimated_cost_usd": round(float(optimized_cost), 2),
-            "estimated_savings_usd": round(float(estimated_savings), 2),
+            "total_estimated_cost_usd": total_estimated_cost_usd,
+            "estimated_savings_usd": estimated_savings_usd,
             "benchmark_naive_cost_usd": round(float(naive_cost), 2),
             "vessel_schedule": solution["vessel_schedule"],
             "strategy_used": strategy_used,
@@ -827,9 +812,17 @@ class VesselCharterOptimizer:
         handling_rate_tpd: float,
         distance_nm: float,
         rate_multiplier: float = 1.0,
+        is_shallow_port: bool = False,
     ) -> float:
         """
         Calculates the naive benchmark cost: Unmanaged spot procurement baseline.
+        Apples-to-apples cost structure matching MILP objective function:
+        Naive Total = (Vessels Needed * Base Freight)
+                    + (Vessels Needed * Demurrage / Turnaround)
+                    + (Vessels Needed * Deadheading)
+                    + (Vessels Needed * Idle Penalty)
+                    + Lighterage Penalty (if Capesize at shallow port: $3.50/MT + $25,000/vessel)
+
         Evaluates both Day 1 unmanaged spot booking and Horizon Average (mean spot rate over window),
         taking the standard unhedged procurement baseline.
         """
@@ -837,7 +830,12 @@ class VesselCharterOptimizer:
         cap = VESSEL_SPECS[largest_vessel]["capacity_mt"]
         vessels_needed = int(-(-required_cargo_mt // cap))  # ceiling division
 
-        # 1. Day 1 Spot Cost
+        # Lighterage Surcharge (if Capesize at shallow port: $3.50/MT + $25,000/vessel demurrage)
+        lighterage_penalty = 0.0
+        if largest_vessel == "Capesize" and is_shallow_port:
+            lighterage_penalty = (vessels_needed * cap * 3.50) + (vessels_needed * DEMURRAGE_DAILY_RATE_USD)
+
+        # 1. Day 1 Spot Cost breakdown
         day1_val = forecasts[largest_vessel][0]["predicted_value"]
         costs_day1 = self._compute_vessel_voyage_costs(
             vessel_type=largest_vessel,
@@ -847,9 +845,21 @@ class VesselCharterOptimizer:
             handling_rate_tpd=handling_rate_tpd,
             distance_nm=distance_nm,
         )
-        day1_total = vessels_needed * costs_day1["total_trip_cost"]
 
-        # 2. Horizon Average Spot Cost (Unmanaged procurement baseline across planning window)
+        base_freight_day1 = costs_day1["laden_freight_cost"]
+        demurrage_day1 = costs_day1["turnaround_cost"]
+        deadheading_day1 = costs_day1["deadheading_cost"]
+        idle_penalty_day1 = costs_day1["idle_time_cost"]
+
+        day1_total = (
+            (vessels_needed * base_freight_day1)
+            + (vessels_needed * demurrage_day1)
+            + (vessels_needed * deadheading_day1)
+            + (vessels_needed * idle_penalty_day1)
+            + lighterage_penalty
+        )
+
+        # 2. Horizon Average Spot Cost breakdown
         vessel_forecast = forecasts.get(largest_vessel, [])
         if vessel_forecast:
             mean_val = sum(f["predicted_value"] for f in vessel_forecast) / len(vessel_forecast)
@@ -861,7 +871,18 @@ class VesselCharterOptimizer:
                 handling_rate_tpd=handling_rate_tpd,
                 distance_nm=distance_nm,
             )
-            mean_total = vessels_needed * costs_mean["total_trip_cost"]
+            base_freight_mean = costs_mean["laden_freight_cost"]
+            demurrage_mean = costs_mean["turnaround_cost"]
+            deadheading_mean = costs_mean["deadheading_cost"]
+            idle_penalty_mean = costs_mean["idle_time_cost"]
+
+            mean_total = (
+                (vessels_needed * base_freight_mean)
+                + (vessels_needed * demurrage_mean)
+                + (vessels_needed * deadheading_mean)
+                + (vessels_needed * idle_penalty_mean)
+                + lighterage_penalty
+            )
         else:
             mean_total = day1_total
 
