@@ -13,6 +13,9 @@
 </p>
 
 ---
+<p align="center">
+  <img src="./docs/banner.png" alt="Freight DSS Dashboard" width="100%" />
+</p>
 
 ## 📌 2. Executive Summary (The Hook)
 
