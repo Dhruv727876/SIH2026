@@ -204,17 +204,17 @@ For an in-depth review of our mathematical modeling, live demonstration steps, a
 
 ## 👥 10. Team & Acknowledgements
 
-### Team Name: **CodeNavigators** (SIH26006)
-*College / Institution: [Insert College Name / University Name Here]*
+### Team Name: **AlgoMarine** (SIH26006)
+*College / Institution: Techno India University, Tripura*
 
 | Team Member | Role | Core Responsibility |
 | :--- | :--- | :--- |
-| **[Member 1 - Team Lead]** | Lead Full-Stack & System Architect | Next.js 14 UI, Cloud Orchestration, API Design |
-| **[Member 2]** | Machine Learning & Quant Engineer | LightGBM Volatility, Prophet Trends, Kaggle ETL |
-| **[Member 3]** | Operations Research Specialist | PuLP MILP Solver, Lighterage Logistics Model |
-| **[Member 4]** | Backend & Database Engineer | TimescaleDB / Neon, FastAPI Endpoints, Caching |
-| **[Member 5]** | Frontend & Visualization Developer | Recharts Dashboards, Glassmorphism UX, Interactive Controls |
-| **[Member 6]** | Domain & Policy Analyst | Ministry of Steel Requirements, Port Specs, Demurrage Economics |
+| **Debasmita Nath - Team Lead** | Lead Full-Stack & System Architect | Next.js 14 UI, Cloud Orchestration, API Design |
+| **Gourav Karmakar** | Machine Learning & Quant Engineer | LightGBM Volatility, Prophet Trends, Kaggle ETL |
+| **Aditi Debnath** | Operations Research Specialist | PuLP MILP Solver, Lighterage Logistics Model |
+| **Prince Barai** | Backend & Database Engineer | TimescaleDB / Neon, FastAPI Endpoints, Caching |
+| **Sayan Chandra Deb** | Frontend & Visualization Developer | Recharts Dashboards, Glassmorphism UX, Interactive Controls |
+| **Arnisha Dey** | Domain & Policy Analyst | Ministry of Steel Requirements, Port Specs, Demurrage Economics |
 
 ### Institutional Acknowledgements
 We express our sincere gratitude to:
