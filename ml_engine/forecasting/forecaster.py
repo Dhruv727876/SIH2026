@@ -525,7 +525,7 @@ class FreightForecaster:
 
         try:
             df = self.fetch_historical_data(index_name, db=db)
-            forecast_180 = self.train_and_predict_long_term(df, horizon=horizon_days)
+            forecast_180 = self.train_and_predict_long_term(df, horizon=horizon_days, index_name=index_name)
             if not forecast_180:
                 fallback_rate = round(float(spec["fallback"] * rate_multiplier), 2)
                 return {"rate": fallback_rate, "trend": "STABLE", "discount_pct": 0.0}

@@ -886,7 +886,8 @@ class VesselCharterOptimizer:
         else:
             mean_total = day1_total
 
-        return float(max(day1_total, mean_total))
+        # Standard unmanaged Day-1 spot fixture benchmark
+        return float(day1_total)
 
 
 if __name__ == "__main__":
