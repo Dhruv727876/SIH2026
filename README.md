@@ -1,5 +1,5 @@
 # Freight DSS: AI-Driven Maritime Procurement & Vessel Chartering Optimization
-### Smart India Hackathon 2024 | Problem Statement ID: SIH26006 | Ministry of Steel
+### Smart India Hackathon 2026 | Problem Statement ID: SIH26006 | Ministry of Steel
 
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js%2014-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js 14" />
